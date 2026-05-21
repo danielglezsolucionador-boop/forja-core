@@ -23,5 +23,6 @@ def health() -> HealthResponse:
             "notifications": "local_queue",
             "factory": "hitl_required",
             "runtime": "local_status_only",
+            "ai_pipeline": "provider_disabled",
         },
     )

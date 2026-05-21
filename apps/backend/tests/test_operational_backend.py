@@ -65,3 +65,16 @@ def test_factory_execution_blocks_without_human_approval() -> None:
     )
     assert execution.status_code == 200
     assert execution.json()["status"] == "blocked"
+
+
+def test_ai_pipeline_records_but_blocks_provider_execution() -> None:
+    token = login()
+    response = client.post(
+        "/ai/pipeline/requests",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"objective": "summarize architecture", "input_summary": "local canary", "constraints": ["no external provider"]},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "blocked_provider_disabled"
+    assert payload["provider_id"] == "ai.local-disabled"

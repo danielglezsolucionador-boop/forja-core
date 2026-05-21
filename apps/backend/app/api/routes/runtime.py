@@ -19,6 +19,7 @@ def runtime_status() -> dict:
         "environment": settings.app_env,
         "zero_write_policy": True,
         "human_in_the_loop": True,
+        "ai_pipeline": "blocked_provider_disabled",
         "providers": provider_service.list_providers(),
         "audit_events": len(read_audit_events(1000)),
         "notes": [

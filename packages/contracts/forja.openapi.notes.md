@@ -10,6 +10,7 @@ Core operational contracts:
 - `GET /runtime/status`
 - `POST /telemetry/events`
 - `POST /notifications`
+- `POST /ai/pipeline/requests`
 - `POST /governance/approval-requests`
 - `POST /factory/requests`
 - `GET /ecosystem/integrations`

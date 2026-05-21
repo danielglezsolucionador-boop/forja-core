@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import audit, auth, ecosystem, factory, governance, health, notifications, providers, runtime, telemetry, validation, workflows
+from app.api.routes import ai_pipeline, audit, auth, ecosystem, factory, governance, health, notifications, providers, runtime, telemetry, validation, workflows
 from app.core.audit import append_audit_event
 from app.core.config import settings
 from app.core.logging import configure_logging, logger
@@ -41,6 +41,7 @@ app.include_router(telemetry.router)
 app.include_router(notifications.router)
 app.include_router(governance.router)
 app.include_router(providers.router)
+app.include_router(ai_pipeline.router)
 app.include_router(factory.router)
 app.include_router(ecosystem.router)
 app.include_router(workflows.router)
