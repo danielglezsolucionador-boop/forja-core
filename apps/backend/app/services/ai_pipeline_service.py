@@ -20,9 +20,11 @@ class AIPipelineService:
             "explanation": "AI pipeline request recorded, but external provider execution is disabled in local FORJA.",
             **payload,
         }
-        records = self._store.read([])
-        records.append(record)
-        self._store.write(records[-500:])
+        def mutate(records: list[dict]) -> None:
+            records.append(record)
+            del records[:-500]
+
+        self._store.update([], mutate)
         append_audit_event("ai_pipeline.request_blocked", requested_by, {"id": record["id"], "provider_id": record["provider_id"]}, risk="medium")
         return record
 

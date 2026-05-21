@@ -1,5 +1,7 @@
 .forja/state/*.json
+.forja/state/tmp*
 .forja/audit/*.jsonl
+.forja/audit/*.json
 .forja/outputs/*
 !.forja/outputs/.gitkeep
 __pycache__/

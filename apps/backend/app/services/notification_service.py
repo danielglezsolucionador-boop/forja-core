@@ -23,9 +23,11 @@ class NotificationService:
             "status": status,
             "delivery_note": "local queue only" if channel == "local" else "external delivery requires provider approval",
         }
-        records = self._store.read([])
-        records.append(record)
-        self._store.write(records[-500:])
+        def mutate(records: list[dict]) -> None:
+            records.append(record)
+            del records[:-500]
+
+        self._store.update([], mutate)
         append_audit_event("notification.created", "system", {"id": record["id"], "channel": channel, "status": status}, risk="low" if status == "queued" else "medium")
         return record
 

@@ -20,9 +20,11 @@ class TelemetryService:
             "severity": severity,
             "metadata": self._redact(metadata),
         }
-        events = self._store.read([])
-        events.append(event)
-        self._store.write(events[-500:])
+        def mutate(events: list[dict]) -> None:
+            events.append(event)
+            del events[:-500]
+
+        self._store.update([], mutate)
         append_audit_event("telemetry.recorded", source, {"event_name": event_name, "severity": severity})
         return event
 

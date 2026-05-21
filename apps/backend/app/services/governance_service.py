@@ -20,26 +20,35 @@ class GovernanceService:
             "decision_reason": None,
             **payload,
         }
-        records = self._store.read([])
-        records.append(record)
-        self._store.write(records)
+        self._store.update([], lambda records: records.append(record))
         append_audit_event("governance.request_created", requested_by, {"id": record["id"], "risk": record["risk"], "status": record["status"]}, risk=record["risk"])
         return record
 
     def decide(self, request_id: str, decision: str, reason: str, decided_by: str) -> dict | None:
-        records = self._store.read([])
-        for record in records:
-            if record["id"] == request_id:
-                if record["status"] == "blocked" and decision == "approved":
-                    append_audit_event("governance.approval_denied_for_blocked", decided_by, {"id": request_id}, risk="critical")
-                    return record
-                record["status"] = decision
-                record["decided_by"] = decided_by
-                record["decision_reason"] = reason
-                self._store.write(records)
-                append_audit_event("governance.request_decided", decided_by, {"id": request_id, "decision": decision}, risk=record["risk"])
-                return record
-        return None
+        result: dict | None = None
+        denied = False
+
+        def mutate(records: list[dict]) -> None:
+            nonlocal result, denied
+            for record in records:
+                if record["id"] == request_id:
+                    if record["status"] == "blocked" and decision == "approved":
+                        denied = True
+                        result = dict(record)
+                        return
+                    record["status"] = decision
+                    record["decided_by"] = decided_by
+                    record["decision_reason"] = reason
+                    result = dict(record)
+                    return
+
+        self._store.update([], mutate)
+        if result is not None:
+            if denied:
+                append_audit_event("governance.approval_denied_for_blocked", decided_by, {"id": request_id}, risk="critical")
+            else:
+                append_audit_event("governance.request_decided", decided_by, {"id": request_id, "decision": decision}, risk=result["risk"])
+        return result
 
     def list_requests(self, limit: int = 100) -> list[dict]:
         return self._store.read([])[-limit:]

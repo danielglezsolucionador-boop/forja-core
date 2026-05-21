@@ -36,9 +36,7 @@ class FactoryService:
             requested_by,
         )
         record["approval_request_id"] = approval["id"]
-        records = self._requests.read([])
-        records.append(record)
-        self._requests.write(records)
+        self._requests.update([], lambda records: records.append(record))
         append_audit_event("factory.request_created", requested_by, {"id": record["id"], "approval_request_id": approval["id"]}, risk="medium")
         return record
 
@@ -94,9 +92,7 @@ class FactoryService:
             execution["status"] = "executed"
             execution["output_path"] = str(output_dir)
             execution["reason"] = "approved metadata output package created"
-        executions = self._executions.read([])
-        executions.append(execution)
-        self._executions.write(executions)
+        self._executions.update([], lambda executions: executions.append(execution))
         append_audit_event("factory.execution_attempted", "system", execution, risk="medium")
         return execution
 
