@@ -1,0 +1,13 @@
+.forja/state/*.json
+.forja/audit/*.jsonl
+.forja/outputs/*
+!.forja/outputs/.gitkeep
+__pycache__/
+.pytest_cache/
+.venv/
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+*.log
