@@ -21,6 +21,7 @@ def test_health_contract() -> None:
     assert payload["status"] == "ok"
     assert payload["service"] == "forja-backend"
     assert payload["modules"]["auth"] == "active"
+    assert payload["database"]["status"] in {"not_configured", "ok", "unavailable"}
 
 
 def test_auth_me_blocks_invalid_token() -> None:
@@ -42,6 +43,7 @@ def test_runtime_is_honest_about_no_busy_loop() -> None:
     assert payload["busy_loop"] is False
     assert payload["runtime_loop"] == "not_started_by_design"
     assert payload["zero_write_policy"] is True
+    assert payload["database"]["status"] in {"not_configured", "ok", "unavailable"}
 
 
 def test_factory_execution_blocks_without_human_approval() -> None:

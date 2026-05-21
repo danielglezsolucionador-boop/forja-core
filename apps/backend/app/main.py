@@ -9,14 +9,17 @@ from app.api.routes import ai_pipeline, audit, auth, ecosystem, factory, governa
 from app.core.audit import append_audit_event
 from app.core.config import settings
 from app.core.logging import configure_logging, logger
+from app.db.migrations import run_migrations_if_enabled
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     configure_logging()
+    settings.validate_runtime_safety()
     settings.state_dir.mkdir(parents=True, exist_ok=True)
     settings.audit_dir.mkdir(parents=True, exist_ok=True)
     settings.outputs_dir.mkdir(parents=True, exist_ok=True)
+    await run_migrations_if_enabled()
     append_audit_event("runtime.startup", "system", {"service": settings.app_name, "version": settings.app_version})
     logger.info("FORJA backend startup complete")
     yield
@@ -28,7 +31,7 @@ app = FastAPI(title="FORJA Backend", version=settings.app_version, lifespan=life
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_origin, "http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

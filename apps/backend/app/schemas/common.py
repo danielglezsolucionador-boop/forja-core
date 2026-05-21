@@ -14,6 +14,8 @@ class HealthResponse(BaseModel):
     environment: str
     production_ready: bool
     modules: dict[str, str] = Field(default_factory=dict)
+    database: dict[str, Any] = Field(default_factory=dict)
+    security_warnings: list[str] = Field(default_factory=list)
 
 
 class ErrorResponse(BaseModel):
