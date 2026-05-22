@@ -2,10 +2,11 @@ services:
   - type: web
     name: forja-backend
     runtime: python
+    rootDir: .
     plan: starter
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    preDeployCommand: PYTHONPATH=apps/backend alembic upgrade head
-    startCommand: PYTHONPATH=apps/backend uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    preDeployCommand: PYTHONPATH=apps/backend python -m alembic upgrade head
+    startCommand: bash apps/backend/start_render.sh
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
