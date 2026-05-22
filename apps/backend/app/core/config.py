@@ -76,6 +76,15 @@ class Settings:
         return values
 
     @property
+    def effective_database_url(self) -> str:
+        database_url = self.database_url.strip()
+        if database_url.startswith("postgresql://"):
+            return database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if database_url.startswith("postgres://"):
+            return database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+        return database_url
+
+    @property
     def database_enabled(self) -> bool:
         return bool(self.database_url.strip())
 

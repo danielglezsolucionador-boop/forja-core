@@ -38,6 +38,11 @@ def test_non_local_environment_is_ready_with_safe_configuration() -> None:
     assert settings.security_warnings() == []
 
 
+def test_render_postgres_url_is_normalized_for_async_sqlalchemy() -> None:
+    settings = Settings(database_url="postgresql://forja:secret@db.example.com:5432/forja")
+    assert settings.effective_database_url == "postgresql+asyncpg://forja:secret@db.example.com:5432/forja"
+
+
 def test_non_local_environment_blocks_wildcard_cors() -> None:
     settings = Settings(
         app_env="staging",

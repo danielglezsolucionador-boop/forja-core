@@ -9,7 +9,7 @@ from app.core.config import settings
 def create_engine() -> AsyncEngine | None:
     if not settings.database_enabled:
         return None
-    return create_async_engine(settings.database_url, pool_pre_ping=True, future=True, connect_args=settings.database_connect_args)
+    return create_async_engine(settings.effective_database_url, pool_pre_ping=True, future=True, connect_args=settings.database_connect_args)
 
 
 engine = create_engine()
