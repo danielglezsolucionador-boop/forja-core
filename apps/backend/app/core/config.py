@@ -48,6 +48,7 @@ class Settings:
     admin_username: str = field(default_factory=lambda: _env("FORJA_ADMIN_USERNAME", "forja_admin"))
     admin_password: str = field(default_factory=lambda: _env("FORJA_ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD))
     database_url: str = field(default_factory=lambda: _env("FORJA_DATABASE_URL", ""))
+    database_ssl: bool = field(default_factory=lambda: _bool_env("FORJA_DATABASE_SSL", True))
     db_auto_migrate: bool = field(default_factory=lambda: _bool_env("FORJA_DB_AUTO_MIGRATE", False))
     base_dir: Path = field(default_factory=lambda: Path(_env("FORJA_BASE_DIR", str(Path(__file__).resolve().parents[4]))))
 
@@ -77,6 +78,10 @@ class Settings:
     @property
     def database_enabled(self) -> bool:
         return bool(self.database_url.strip())
+
+    @property
+    def database_connect_args(self) -> dict:
+        return {} if self.database_ssl else {"ssl": False}
 
     @property
     def production_ready(self) -> bool:

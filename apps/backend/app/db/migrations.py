@@ -17,4 +17,5 @@ async def run_migrations_if_enabled() -> None:
 def _run_upgrade_head() -> None:
     config = Config(str(settings.base_dir / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", settings.database_url)
+    config.set_main_option("script_location", str(settings.base_dir / "apps" / "backend" / "alembic"))
     command.upgrade(config, "head")

@@ -23,6 +23,7 @@
 ```powershell
 cd C:\Users\admin\forja-knowledge-core
 $env:FORJA_DATABASE_URL="postgresql+asyncpg://forja:forja@127.0.0.1:5432/forja_local"
+$env:FORJA_DATABASE_SSL="false"
 python -m alembic upgrade head
 ```
 

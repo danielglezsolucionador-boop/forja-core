@@ -9,11 +9,16 @@ from app.core.config import settings
 def create_engine() -> AsyncEngine | None:
     if not settings.database_enabled:
         return None
-    return create_async_engine(settings.database_url, pool_pre_ping=True, future=True)
+    return create_async_engine(settings.database_url, pool_pre_ping=True, future=True, connect_args=settings.database_connect_args)
 
 
 engine = create_engine()
 async_session = async_sessionmaker(engine, expire_on_commit=False) if engine is not None else None
+
+
+async def dispose_engine() -> None:
+    if engine is not None:
+        await engine.dispose()
 
 
 async def database_status() -> dict:

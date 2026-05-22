@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.main import app
 
 
@@ -9,7 +10,7 @@ client = TestClient(app)
 
 
 def login() -> str:
-    response = client.post("/auth/login", json={"username": "forja_admin", "password": "forja_local_admin_change_me"})
+    response = client.post("/auth/login", json={"username": settings.admin_username, "password": settings.admin_password})
     assert response.status_code == 200
     return response.json()["access_token"]
 
@@ -33,7 +34,7 @@ def test_auth_me_accepts_valid_token() -> None:
     token = login()
     response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
-    assert response.json()["username"] == "forja_admin"
+    assert response.json()["username"] == settings.admin_username
 
 
 def test_runtime_is_honest_about_no_busy_loop() -> None:

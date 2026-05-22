@@ -10,6 +10,7 @@ from app.core.audit import append_audit_event
 from app.core.config import settings
 from app.core.logging import configure_logging, logger
 from app.db.migrations import run_migrations_if_enabled
+from app.db.session import dispose_engine
 
 
 @asynccontextmanager
@@ -24,6 +25,7 @@ async def lifespan(_: FastAPI):
     logger.info("FORJA backend startup complete")
     yield
     append_audit_event("runtime.shutdown", "system", {"service": settings.app_name})
+    await dispose_engine()
     logger.info("FORJA backend shutdown complete")
 
 
