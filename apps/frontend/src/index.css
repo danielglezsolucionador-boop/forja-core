@@ -1322,7 +1322,7 @@ a {
     padding-bottom: 8px;
     white-space: normal;
     overflow-wrap: anywhere;
-    word-break: break-word;
+    word-break: break-all;
     justify-content: center;
     text-align: center;
   }
