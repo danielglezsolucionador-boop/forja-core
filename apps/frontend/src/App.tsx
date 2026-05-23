@@ -9,6 +9,14 @@ type LoadState<T> = {
 
 type Tone = "green" | "amber" | "red" | "steel";
 
+type DetailPanel = {
+  title: string;
+  eyebrow: string;
+  tone: Tone;
+  body: string;
+  rows: Array<[string, string]>;
+};
+
 function useLoad<T>(loader: () => Promise<T>, deps: unknown[]): LoadState<T> {
   const [state, setState] = useState<LoadState<T>>({ data: null, error: null, loading: true });
 
@@ -30,12 +38,18 @@ function useLoad<T>(loader: () => Promise<T>, deps: unknown[]): LoadState<T> {
   return state;
 }
 
+function useRuntimeData(refreshKey: number) {
+  const health = useLoad<HealthResponse>(() => fetchJson("/health"), [refreshKey]);
+  const runtime = useLoad<RuntimeStatus>(() => fetchJson("/runtime/status"), [refreshKey]);
+  return { health, runtime };
+}
+
 function toneForStatus(status?: string | boolean): Tone {
   if (status === true) return "green";
   if (status === false) return "amber";
   const value = String(status ?? "").toLowerCase();
   if (["ok", "active", "available", "true", "connection_ok"].includes(value)) return "green";
-  if (["degraded", "disabled", "not_started_by_design", "blocked_provider_disabled", "local_queue"].includes(value)) return "amber";
+  if (["degraded", "disabled", "not_started_by_design", "blocked_provider_disabled", "local_queue", "loading"].includes(value)) return "amber";
   if (["error", "failed", "critical", "unavailable", "false"].includes(value)) return "red";
   return "steel";
 }
@@ -48,6 +62,34 @@ function display(value: unknown, fallback = "Not reported") {
 function StatusBadge({ value, tone }: { value: string | boolean | number; tone?: Tone }) {
   const resolvedTone = tone ?? toneForStatus(typeof value === "number" ? "ok" : value);
   return <span className={`status-badge ${resolvedTone}`}>{String(value)}</span>;
+}
+
+function ActionButton({
+  children,
+  onClick,
+  href,
+  variant = "primary",
+  loading = false,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  href?: string;
+  variant?: "primary" | "ghost";
+  loading?: boolean;
+}) {
+  const className = `forge-button ${variant}${loading ? " loading" : ""}`;
+  if (href) {
+    return (
+      <a className={className} href={href} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    );
+  }
+  return (
+    <button className={className} type="button" onClick={onClick} disabled={loading}>
+      {loading ? "Refreshing..." : children}
+    </button>
+  );
 }
 
 function LoadingBars() {
@@ -65,12 +107,16 @@ function ForgeCard({
   title,
   value,
   tone,
+  actionLabel,
+  onAction,
   children,
 }: {
   eyebrow: string;
   title: string;
   value: string | number | boolean;
   tone?: Tone;
+  actionLabel?: string;
+  onAction?: () => void;
   children?: React.ReactNode;
 }) {
   return (
@@ -81,6 +127,13 @@ function ForgeCard({
       </div>
       <h3>{title}</h3>
       {children ? <div className="card-body">{children}</div> : null}
+      {actionLabel && onAction ? (
+        <div className="card-actions">
+          <ActionButton variant="ghost" onClick={onAction}>
+            {actionLabel}
+          </ActionButton>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -94,15 +147,62 @@ function ErrorPanel({ label, error }: { label: string; error: string }) {
   );
 }
 
+function DetailModal({ panel, onClose }: { panel: DetailPanel; onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <section className="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title" onClick={(event) => event.stopPropagation()}>
+        <div className="card-topline">
+          <span>{panel.eyebrow}</span>
+          <StatusBadge value={panel.tone === "green" ? "available" : panel.tone === "amber" ? "controlled" : "attention"} tone={panel.tone} />
+        </div>
+        <h2 id="detail-title">{panel.title}</h2>
+        <p>{panel.body}</p>
+        <div className="detail-rows">
+          {panel.rows.map(([label, value]) => (
+            <div key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+        </div>
+        <div className="modal-actions">
+          <ActionButton variant="ghost" onClick={onClose}>
+            Close detail
+          </ActionButton>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function App() {
-  const health = useLoad<HealthResponse>(() => fetchJson("/health"), []);
-  const runtime = useLoad<RuntimeStatus>(() => fetchJson("/runtime/status"), []);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [lastRefresh, setLastRefresh] = useState("Initial sync");
+  const [panel, setPanel] = useState<DetailPanel | null>(null);
+  const { health, runtime } = useRuntimeData(refreshKey);
 
   const modules = useMemo(() => Object.entries(health.data?.modules ?? {}), [health.data]);
   const providers = runtime.data?.providers ?? [];
   const securityWarnings = runtime.data?.security_warnings ?? health.data?.security_warnings ?? [];
   const database = runtime.data?.database ?? health.data?.database;
   const backendReady = health.data?.status === "ok" && runtime.data?.status === "active";
+  const refreshing = health.loading || runtime.loading;
+
+  const openPanel = (detail: DetailPanel) => setPanel(detail);
+  const refreshStatus = () => {
+    setLastRefresh(`Manual refresh ${new Date().toLocaleTimeString()}`);
+    setRefreshKey((key) => key + 1);
+  };
+  const scrollToMatrix = () => document.getElementById("module-matrix")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const governanceBlocked = (title: string, body: string, rows: Array<[string, string]>) => {
+    openPanel({
+      title,
+      eyebrow: "Governance gate",
+      tone: "amber",
+      body,
+      rows: [["Action", "Read-only cloud console"], ["Decision", "Blocked by governance"], ...rows],
+    });
+  };
 
   return (
     <main className="forge-shell">
@@ -120,6 +220,12 @@ export default function App() {
           <div className="hero-actions">
             <StatusBadge value={backendReady ? "cloud online" : "checking"} tone={backendReady ? "green" : "amber"} />
             <span className="api-chip">{API_URL}</span>
+          </div>
+          <div className="command-bar" aria-label="Runtime actions">
+            <ActionButton onClick={refreshStatus} loading={refreshing}>Refresh status</ActionButton>
+            <ActionButton variant="ghost" href={API_URL}>Ver backend</ActionButton>
+            <ActionButton variant="ghost" href={`${API_URL}/runtime/status`}>Ver runtime</ActionButton>
+            <ActionButton variant="ghost" href={`${API_URL}/health`}>Ver health</ActionButton>
           </div>
         </div>
 
@@ -147,22 +253,44 @@ export default function App() {
               <strong>{runtime.loading ? "checking" : display(runtime.data?.audit_events, "0")}</strong>
             </div>
           </div>
+          <div className="sync-note">
+            <span>{lastRefresh}</span>
+            <strong>{refreshing ? "Syncing cloud runtime" : health.error || runtime.error ? "Sync needs attention" : "Cloud telemetry current"}</strong>
+          </div>
         </aside>
       </section>
 
       <section className="status-strip">
-        <ForgeCard eyebrow="Backend" title="Health Overview" value={health.loading ? "loading" : health.data?.status ?? "error"}>
+        <ForgeCard eyebrow="Backend" title="Health Overview" value={health.loading ? "loading" : health.data?.status ?? "error"} actionLabel="Inspect health" onAction={() => openPanel({
+          title: "Backend health",
+          eyebrow: "GET /health",
+          tone: toneForStatus(health.data?.status ?? (health.error ? "error" : "loading")),
+          body: health.error ?? "Public health endpoint is reachable from the frontend and reporting cloud state.",
+          rows: [["Service", display(health.data?.service)], ["Version", display(health.data?.version)], ["Environment", display(health.data?.environment)], ["Production ready", display(health.data?.production_ready)]],
+        })}>
           {health.loading ? <LoadingBars /> : <p>{health.error ?? `${display(health.data?.service)} ${display(health.data?.version, "")}`}</p>}
         </ForgeCard>
-        <ForgeCard eyebrow="Runtime" title="Execution State" value={runtime.loading ? "loading" : runtime.data?.status ?? "error"}>
+        <ForgeCard eyebrow="Runtime" title="Execution State" value={runtime.loading ? "loading" : runtime.data?.status ?? "error"} actionLabel="Inspect runtime" onAction={() => openPanel({
+          title: "Runtime execution",
+          eyebrow: "GET /runtime/status",
+          tone: toneForStatus(runtime.data?.status ?? (runtime.error ? "error" : "loading")),
+          body: runtime.error ?? "Runtime loop, queue behavior and execution gates are reported by the live backend.",
+          rows: [["Runtime loop", display(runtime.data?.runtime_loop)], ["Busy loop", display(runtime.data?.busy_loop)], ["Audit events", display(runtime.data?.audit_events, "0")], ["Zero write policy", display(runtime.data?.zero_write_policy)]],
+        })}>
           {runtime.loading ? <LoadingBars /> : <p>{runtime.error ?? display(runtime.data?.runtime_loop)}</p>}
         </ForgeCard>
-        <ForgeCard eyebrow="Database" title="Persistence Layer" value={database?.status ?? "not reported"}>
-          <p>{display(database?.reason)} · enabled: {display(database?.enabled)}</p>
+        <ForgeCard eyebrow="Database" title="Persistence Layer" value={database?.status ?? "not reported"} actionLabel="Database detail" onAction={() => openPanel({
+          title: "Persistence layer",
+          eyebrow: "Database status",
+          tone: toneForStatus(database?.status),
+          body: "Database status is displayed exactly as reported by FORJA cloud telemetry.",
+          rows: [["Status", display(database?.status)], ["Enabled", display(database?.enabled)], ["Reason", display(database?.reason)]],
+        })}>
+          <p>{display(database?.reason)} - enabled: {display(database?.enabled)}</p>
         </ForgeCard>
       </section>
 
-      {(health.error || runtime.error) ? (
+      {health.error || runtime.error ? (
         <section className="error-grid">
           {health.error ? <ErrorPanel label="Health endpoint error" error={health.error} /> : null}
           {runtime.error ? <ErrorPanel label="Runtime endpoint error" error={runtime.error} /> : null}
@@ -170,11 +298,19 @@ export default function App() {
       ) : null}
 
       <section className="dashboard-grid">
-        <ForgeCard eyebrow="Governance" title="Human Control Layer" value={runtime.data?.human_in_the_loop ?? "not reported"}>
+        <ForgeCard eyebrow="Governance" title="Human Control Layer" value={runtime.data?.human_in_the_loop ?? "not reported"} actionLabel="Revisar governance" onAction={() => governanceBlocked(
+          "Human control layer",
+          "Sensitive actions remain read-only from this public console. Execution changes require authenticated governance routes.",
+          [["Human in the loop", display(runtime.data?.human_in_the_loop)], ["Zero write policy", display(runtime.data?.zero_write_policy)]],
+        )}>
           <p>Human approval remains part of sensitive execution paths. Zero-write policy: {display(runtime.data?.zero_write_policy)}.</p>
         </ForgeCard>
 
-        <ForgeCard eyebrow="AI Pipeline" title="Provider Boundary" value={runtime.data?.ai_pipeline ?? health.data?.modules?.ai_pipeline ?? "not reported"}>
+        <ForgeCard eyebrow="AI Pipeline" title="Provider Boundary" value={runtime.data?.ai_pipeline ?? health.data?.modules?.ai_pipeline ?? "not reported"} actionLabel="Revisar AI pipeline" onAction={() => governanceBlocked(
+          "Provider boundary",
+          "External AI activation is blocked from this frontend. This panel exposes only live provider status from runtime telemetry.",
+          [["Pipeline", display(runtime.data?.ai_pipeline ?? health.data?.modules?.ai_pipeline)], ["Providers", display(providers.length, "0")]],
+        )}>
           {providers.length ? (
             <div className="provider-list">
               {providers.map((provider) => (
@@ -190,19 +326,35 @@ export default function App() {
           )}
         </ForgeCard>
 
-        <ForgeCard eyebrow="Factory" title="Execution Forge" value={health.data?.modules?.factory ?? "not reported"}>
+        <ForgeCard eyebrow="Factory" title="Execution Forge" value={health.data?.modules?.factory ?? "not reported"} actionLabel="Factory status" onAction={scrollToMatrix}>
           <p>{runtime.data?.notes?.find((note) => note.toLowerCase().includes("factory")) ?? "Factory module not reported by runtime notes."}</p>
         </ForgeCard>
 
-        <ForgeCard eyebrow="Workflow" title="Operational Flow" value={health.data?.modules?.workflows ?? runtime.data?.runtime_loop ?? "not reported"}>
+        <ForgeCard eyebrow="Workflow" title="Operational Flow" value={health.data?.modules?.workflows ?? runtime.data?.runtime_loop ?? "not reported"} actionLabel="Revisar workflows" onAction={() => openPanel({
+          title: "Operational workflows",
+          eyebrow: "Workflow status",
+          tone: toneForStatus(health.data?.modules?.workflows ?? runtime.data?.runtime_loop),
+          body: "Workflow activity is summarized from public health and runtime status only.",
+          rows: [["Module", display(health.data?.modules?.workflows)], ["Runtime loop", display(runtime.data?.runtime_loop)], ["Busy loop", display(runtime.data?.busy_loop)]],
+        })}>
           <p>{runtime.data?.notes?.find((note) => note.toLowerCase().includes("background")) ?? "Workflow status is not directly reported by /health."}</p>
         </ForgeCard>
 
-        <ForgeCard eyebrow="Audit" title="Traceability Ledger" value={runtime.data?.audit_events ?? "not reported"}>
+        <ForgeCard eyebrow="Audit" title="Traceability Ledger" value={runtime.data?.audit_events ?? "not reported"} actionLabel="Revisar auditoria" onAction={() => governanceBlocked(
+          "Traceability ledger",
+          "Detailed audit records stay behind authenticated API routes. This public surface shows only the runtime audit count.",
+          [["Audit events", display(runtime.data?.audit_events, "0")]],
+        )}>
           <p>Detailed audit trail remains protected behind authenticated API routes. This panel only uses public runtime summary.</p>
         </ForgeCard>
 
-        <ForgeCard eyebrow="Security" title="Readiness & Warnings" value={securityWarnings.length ? `${securityWarnings.length} warnings` : "clear"} tone={securityWarnings.length ? "amber" : "green"}>
+        <ForgeCard eyebrow="Security" title="Readiness & Warnings" value={securityWarnings.length ? `${securityWarnings.length} warnings` : "clear"} tone={securityWarnings.length ? "amber" : "green"} actionLabel="Ver detalles seguridad" onAction={() => openPanel({
+          title: "Security readiness",
+          eyebrow: "Runtime warnings",
+          tone: securityWarnings.length ? "amber" : "green",
+          body: securityWarnings.length ? "FORJA reports controlled security warnings from the backend." : "No security warnings are reported by the cloud runtime.",
+          rows: securityWarnings.length ? securityWarnings.map((warning, index) => [`Warning ${index + 1}`, warning]) : [["Warnings", "clear"]],
+        })}>
           {securityWarnings.length ? (
             <ul className="warning-list">
               {securityWarnings.map((warning) => <li key={warning}>{warning}</li>)}
@@ -213,7 +365,7 @@ export default function App() {
         </ForgeCard>
       </section>
 
-      <section className="module-matrix">
+      <section className="module-matrix" id="module-matrix">
         <div className="section-heading">
           <span>Subsystems</span>
           <h2>Enterprise module matrix</h2>
@@ -236,8 +388,9 @@ export default function App() {
 
       <footer className="technical-footer">
         <span>Backend URL: {API_URL}</span>
-        <span>Endpoints: /health · /runtime/status</span>
+        <span>Endpoints: /health - /runtime/status</span>
       </footer>
+      {panel ? <DetailModal panel={panel} onClose={() => setPanel(null)} /> : null}
     </main>
   );
 }
