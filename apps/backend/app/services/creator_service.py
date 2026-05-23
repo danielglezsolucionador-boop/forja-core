@@ -32,6 +32,7 @@ class CreatorService:
     def __init__(self) -> None:
         self._commands = store("creator_commands")
         self._capabilities = store("creator_capability_requests")
+        self._capability_consumptions = store("creator_capability_consumptions")
 
     def console_state(self, limit: int = 50) -> dict:
         return {
@@ -41,6 +42,8 @@ class CreatorService:
             "commands": self.list_commands(limit),
             "outputs": self.list_outputs(limit=100),
             "capability_requests": self.list_capability_requests(limit=100),
+            "approved_capabilities": self.list_approved_capabilities(limit=100),
+            "capability_consumptions": self.list_capability_consumptions(limit=100),
             "audit_stream": read_audit_events(60),
         }
 
@@ -357,6 +360,117 @@ class CreatorService:
                 risk="medium",
             )
         return result, error
+
+    def consume_capability(self, request_id: str, payload: dict) -> dict | None:
+        capability = self.get_capability_request(request_id)
+        if capability is None:
+            return None
+        now = utc_now()
+        sender = payload.get("sender", capability["sender"])
+        failure_reason = self._capability_consumption_blocker(capability, payload)
+        if failure_reason:
+            record = self._make_capability_consumption(
+                capability,
+                payload,
+                sender=sender,
+                status="blocked",
+                response=f"capability_consumption_blocked_for_{capability['reply_to']}",
+                failure_reason=failure_reason,
+                provider_status="not_bound",
+                usage_metadata={},
+                cost_metadata=self._default_cost_metadata(),
+                provider_response_metadata={},
+                result_metadata={"safe_mode": True, "executed": False},
+                created_at=now,
+            )
+            record["timeline"].append(self._event(now, "capability.consumption_blocked", failure_reason))
+        else:
+            usage_metadata = self._sanitize_consumption_metadata(payload.get("usage_metadata", {}))
+            cost_metadata = self._normalize_cost_metadata(payload.get("cost_metadata", {}))
+            provider_response_metadata = self._sanitize_consumption_metadata(payload.get("provider_response_metadata", {}))
+            result_metadata = self._sanitize_consumption_metadata(payload.get("result_metadata", {}))
+            provider_status = "provider_response_metadata_registered" if provider_response_metadata else "approved_metadata_only"
+            record = self._make_capability_consumption(
+                capability,
+                payload,
+                sender=sender,
+                status="completed",
+                response=f"capability_consumption_completed_for_{capability['reply_to']}",
+                failure_reason=None,
+                provider_status=provider_status,
+                usage_metadata=usage_metadata,
+                cost_metadata=cost_metadata,
+                provider_response_metadata=provider_response_metadata,
+                result_metadata={
+                    "safe_mode": True,
+                    "executed": True,
+                    "external_api_called": False,
+                    **result_metadata,
+                },
+                created_at=now,
+            )
+            record["timeline"].extend(
+                [
+                    self._event(now, "capability.wrapper_started", "Provider-safe wrapper started in safe metadata mode."),
+                    self._event(now, "capability.usage_registered", "Usage metadata registered without autonomous loop."),
+                    self._event(now, "capability.cost_registered", "Cost metadata registered explicitly; no hidden costs inferred."),
+                    self._event(now, "capability.consumption_completed", "Approved capability consumed in safe mode without direct API call."),
+                ]
+            )
+        self._capability_consumptions.update([], lambda records: records.append(record))
+        append_audit_event(
+            "creator.capability_consumed",
+            sender,
+            {
+                "id": record["id"],
+                "capability_request_id": request_id,
+                "status": record["status"],
+                "response": record["response"],
+                "external_api_called": record["external_api_called"],
+            },
+            risk="medium",
+        )
+        return self._normalize_capability_consumption(record)
+
+    def list_approved_capabilities(self, limit: int = 100) -> list[dict]:
+        approved = [
+            record
+            for record in self.list_capability_requests(limit=1000)
+            if record["status"] == "approved" and record.get("approved_metadata") is not None
+        ]
+        return approved[-limit:]
+
+    def get_capability_request(self, request_id: str) -> dict | None:
+        for record in self._capabilities.read([]):
+            normalized = self._normalize_capability_request(record)
+            if normalized["id"] == request_id:
+                return normalized
+        return None
+
+    def list_capability_consumptions(self, capability_request_id: str | None = None, limit: int = 100) -> list[dict]:
+        records = [self._normalize_capability_consumption(record) for record in self._capability_consumptions.read([])]
+        if capability_request_id:
+            records = [record for record in records if record["capability_request_id"] == capability_request_id]
+        return records[-limit:]
+
+    def get_capability_consumption(self, consumption_id: str) -> dict | None:
+        for record in self._capability_consumptions.read([]):
+            normalized = self._normalize_capability_consumption(record)
+            if normalized["id"] == consumption_id:
+                return normalized
+        return None
+
+    def register_capability_execution(self, consumption_id: str, metadata: dict) -> dict | None:
+        return self._update_capability_consumption_metadata(consumption_id, "execution", metadata)
+
+    def register_capability_usage(self, consumption_id: str, metadata: dict) -> dict | None:
+        return self._update_capability_consumption_metadata(consumption_id, "usage", metadata)
+
+    def register_capability_cost(self, consumption_id: str, metadata: dict) -> dict | None:
+        return self._update_capability_consumption_metadata(consumption_id, "cost", metadata)
+
+    def register_capability_provider_response(self, consumption_id: str, metadata: dict) -> dict | None:
+        return self._update_capability_consumption_metadata(consumption_id, "provider_response", metadata)
 
     def list_commands(self, limit: int = 50) -> list[dict]:
         return [self._normalize_record(record) for record in self._commands.read([])[-limit:]]
@@ -764,6 +878,191 @@ class CreatorService:
         if isinstance(value, list):
             return any(self._metadata_has_forbidden_keys(item) for item in value)
         return False
+
+    def _capability_consumption_blocker(self, capability: dict, payload: dict) -> str | None:
+        if capability["status"] != "approved":
+            return "capability_not_approved"
+        if capability.get("approved_metadata") is None:
+            return "approved_capability_metadata_missing"
+        if payload.get("manual_approval") is not True:
+            return "missing_manual_consumption_approval"
+        for key in ["usage_metadata", "cost_metadata", "provider_response_metadata", "result_metadata"]:
+            if self._metadata_has_secret_keys(payload.get(key, {})):
+                return "metadata_contains_secret_or_token"
+        if self._provider_response_has_fake_provider(payload.get("provider_response_metadata", {})):
+            return "provider_identity_not_allowed_in_safe_mode"
+        return None
+
+    def _make_capability_consumption(
+        self,
+        capability: dict,
+        payload: dict,
+        *,
+        sender: str,
+        status: str,
+        response: str,
+        failure_reason: str | None,
+        provider_status: str,
+        usage_metadata: dict,
+        cost_metadata: dict,
+        provider_response_metadata: dict,
+        result_metadata: dict,
+        created_at: str,
+    ) -> dict:
+        return {
+            "id": str(uuid.uuid4()),
+            "capability_request_id": capability["id"],
+            "timestamp": created_at,
+            "sender": sender if sender in {"user", "cerebro", "seo", "system"} else capability["sender"],
+            "reply_to": capability["reply_to"],
+            "task": payload.get("task", capability["objective"]),
+            "status": status,
+            "response": response,
+            "failure_reason": failure_reason,
+            "manual_approval": payload.get("manual_approval") is True,
+            "execution_mode": "safe_metadata",
+            "provider_status": provider_status,
+            "external_api_called": False,
+            "usage_metadata": usage_metadata,
+            "cost_metadata": cost_metadata,
+            "provider_response_metadata": provider_response_metadata,
+            "result_metadata": result_metadata,
+            "governance": self._capability_consumption_governance(status),
+            "timeline": [
+                self._event(created_at, "capability.consumption_requested", f"Safe-mode consumption requested by {sender}."),
+                self._event(created_at, "capability.consumption_governance_checked", "Manual approval, approved capability metadata, and secret boundaries evaluated."),
+            ],
+        }
+
+    def _normalize_capability_consumption(self, record: dict) -> dict:
+        normalized = dict(record)
+        normalized.setdefault("id", str(uuid.uuid4()))
+        normalized.setdefault("capability_request_id", "")
+        normalized.setdefault("timestamp", utc_now())
+        normalized.setdefault("sender", "system")
+        if normalized["sender"] not in {"user", "cerebro", "seo", "system"}:
+            normalized["sender"] = "system"
+        normalized.setdefault("reply_to", self._capability_reply_target(normalized["sender"]))
+        if normalized["reply_to"] not in {"ceo", "cerebro", "seo", "system"}:
+            normalized["reply_to"] = self._capability_reply_target(normalized["sender"])
+        normalized.setdefault("task", "Capability consumption")
+        normalized.setdefault("status", "blocked")
+        normalized.setdefault("response", f"capability_consumption_{normalized['status']}_for_{normalized['reply_to']}")
+        normalized.setdefault("failure_reason", None)
+        normalized.setdefault("manual_approval", False)
+        normalized.setdefault("execution_mode", "safe_metadata")
+        normalized.setdefault("provider_status", "not_bound")
+        normalized.setdefault("external_api_called", False)
+        normalized.setdefault("usage_metadata", {})
+        normalized.setdefault("cost_metadata", self._default_cost_metadata())
+        normalized.setdefault("provider_response_metadata", {})
+        normalized.setdefault("result_metadata", {})
+        normalized.setdefault("governance", self._capability_consumption_governance(normalized["status"]))
+        normalized.setdefault("timeline", [])
+        return normalized
+
+    def _update_capability_consumption_metadata(self, consumption_id: str, section: str, metadata: dict) -> dict | None:
+        result: dict | None = None
+        now = utc_now()
+
+        def mutate(records: list[dict]) -> None:
+            nonlocal result
+            for record in records:
+                if record.get("id") != consumption_id:
+                    continue
+                normalized = self._normalize_capability_consumption(record)
+                record.clear()
+                record.update(normalized)
+                if self._metadata_has_secret_keys(metadata):
+                    record["status"] = "failed"
+                    record["failure_reason"] = "metadata_contains_secret_or_token"
+                    record["provider_status"] = "failed_metadata_registered"
+                    record["timeline"].append(self._event(now, f"capability.{section}_metadata_blocked", "Metadata contained secret-like fields and was blocked."))
+                elif section == "provider_response" and self._provider_response_has_fake_provider(metadata):
+                    record["status"] = "failed"
+                    record["failure_reason"] = "provider_identity_not_allowed_in_safe_mode"
+                    record["provider_status"] = "failed_metadata_registered"
+                    record["timeline"].append(self._event(now, "capability.provider_response_blocked", "Provider identity fields are not accepted in safe mode."))
+                elif section == "usage":
+                    record["usage_metadata"] = {**record["usage_metadata"], **self._sanitize_consumption_metadata(metadata)}
+                    record["timeline"].append(self._event(now, "capability.usage_metadata_registered", "Usage metadata registered."))
+                elif section == "cost":
+                    record["cost_metadata"] = self._normalize_cost_metadata({**record["cost_metadata"], **metadata})
+                    record["timeline"].append(self._event(now, "capability.cost_metadata_registered", "Cost metadata registered explicitly."))
+                elif section == "provider_response":
+                    record["provider_response_metadata"] = {**record["provider_response_metadata"], **self._sanitize_consumption_metadata(metadata)}
+                    record["provider_status"] = "provider_response_metadata_registered"
+                    record["timeline"].append(self._event(now, "capability.provider_response_metadata_registered", "Provider response metadata registered without storing secrets."))
+                else:
+                    record["result_metadata"] = {**record["result_metadata"], **self._sanitize_consumption_metadata(metadata)}
+                    record["timeline"].append(self._event(now, "capability.execution_metadata_registered", "Execution/result metadata registered."))
+                result = self._normalize_capability_consumption(record)
+                return
+
+        self._capability_consumptions.update([], mutate)
+        if result is not None:
+            append_audit_event(
+                f"creator.capability_{section}_registered",
+                "operator",
+                {"id": consumption_id, "status": result["status"], "provider_status": result["provider_status"]},
+                risk="medium",
+            )
+        return result
+
+    def _capability_consumption_governance(self, status: str) -> dict:
+        return {
+            "status": status,
+            "safe_mode": True,
+            "manual_approval_required": True,
+            "autonomous_loops_allowed": False,
+            "dangerous_calls_allowed": False,
+            "external_api_call_performed": False,
+            "secret_storage_allowed": False,
+            "provider_selection_allowed": False,
+        }
+
+    def _default_cost_metadata(self) -> dict:
+        return {
+            "reported": False,
+            "amount": None,
+            "currency": None,
+            "units": None,
+            "note": "No cost metadata registered. FORJA did not infer hidden costs.",
+        }
+
+    def _normalize_cost_metadata(self, metadata: dict) -> dict:
+        if self._metadata_has_secret_keys(metadata):
+            return {**self._default_cost_metadata(), "blocked_reason": "metadata_contains_secret_or_token"}
+        return {
+            "reported": bool(metadata),
+            "amount": metadata.get("amount"),
+            "currency": metadata.get("currency"),
+            "units": metadata.get("units"),
+            "note": metadata.get("note", "Cost metadata explicitly registered by operator." if metadata else "No cost metadata registered. FORJA did not infer hidden costs."),
+        }
+
+    def _sanitize_consumption_metadata(self, metadata: dict) -> dict:
+        if not isinstance(metadata, dict):
+            return {}
+        return {key: value for key, value in metadata.items() if not self._metadata_has_secret_keys({key: value})}
+
+    def _metadata_has_secret_keys(self, value: Any) -> bool:
+        forbidden = ["api_key", "apikey", "token", "secret", "password", "credential", "private_key"]
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if any(marker in str(key).lower() for marker in forbidden):
+                    return True
+                if self._metadata_has_secret_keys(nested):
+                    return True
+        if isinstance(value, list):
+            return any(self._metadata_has_secret_keys(item) for item in value)
+        return False
+
+    def _provider_response_has_fake_provider(self, metadata: dict) -> bool:
+        if not isinstance(metadata, dict):
+            return False
+        forbidden = ["provider", "model", "api_key", "token", "secret"]
+        return any(any(marker == str(key).lower() or marker in str(key).lower() for marker in forbidden) for key in metadata)
 
     def _event(self, timestamp: str, event: str, detail: str) -> dict:
         return {"timestamp": timestamp, "event": event, "detail": detail}

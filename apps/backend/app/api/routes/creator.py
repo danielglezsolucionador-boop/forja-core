@@ -5,6 +5,9 @@ from fastapi.responses import JSONResponse
 
 from app.schemas.creator import (
     CapabilityDecisionIn,
+    CapabilityConsumeIn,
+    CapabilityConsumptionMetadataIn,
+    CapabilityConsumptionRecord,
     CapabilityMetadataIn,
     CapabilityRequestIn,
     CapabilityRequestRecord,
@@ -123,4 +126,49 @@ def attach_capability_metadata(request_id: str, payload: CapabilityMetadataIn) -
         raise HTTPException(status_code=404, detail="capability_request_not_found")
     if error is not None:
         raise HTTPException(status_code=409, detail=error)
+    return record
+
+
+@router.post("/capabilities/{request_id}/consume", response_model=CapabilityConsumptionRecord)
+def consume_capability(request_id: str, payload: CapabilityConsumeIn) -> dict:
+    record = creator_service.consume_capability(request_id, payload.model_dump())
+    if record is None:
+        raise HTTPException(status_code=404, detail="capability_request_not_found")
+    return record
+
+
+@router.get("/capability-consumptions", response_model=list[CapabilityConsumptionRecord])
+def list_capability_consumptions(capability_request_id: str | None = None, limit: int = 100) -> list[dict]:
+    return creator_service.list_capability_consumptions(capability_request_id=capability_request_id, limit=limit)
+
+
+@router.post("/capability-consumptions/{consumption_id}/execution", response_model=CapabilityConsumptionRecord)
+def register_capability_execution(consumption_id: str, payload: CapabilityConsumptionMetadataIn) -> dict:
+    record = creator_service.register_capability_execution(consumption_id, payload.metadata)
+    if record is None:
+        raise HTTPException(status_code=404, detail="capability_consumption_not_found")
+    return record
+
+
+@router.post("/capability-consumptions/{consumption_id}/usage", response_model=CapabilityConsumptionRecord)
+def register_capability_usage(consumption_id: str, payload: CapabilityConsumptionMetadataIn) -> dict:
+    record = creator_service.register_capability_usage(consumption_id, payload.metadata)
+    if record is None:
+        raise HTTPException(status_code=404, detail="capability_consumption_not_found")
+    return record
+
+
+@router.post("/capability-consumptions/{consumption_id}/cost", response_model=CapabilityConsumptionRecord)
+def register_capability_cost(consumption_id: str, payload: CapabilityConsumptionMetadataIn) -> dict:
+    record = creator_service.register_capability_cost(consumption_id, payload.metadata)
+    if record is None:
+        raise HTTPException(status_code=404, detail="capability_consumption_not_found")
+    return record
+
+
+@router.post("/capability-consumptions/{consumption_id}/provider-response", response_model=CapabilityConsumptionRecord)
+def register_capability_provider_response(consumption_id: str, payload: CapabilityConsumptionMetadataIn) -> dict:
+    record = creator_service.register_capability_provider_response(consumption_id, payload.metadata)
+    if record is None:
+        raise HTTPException(status_code=404, detail="capability_consumption_not_found")
     return record

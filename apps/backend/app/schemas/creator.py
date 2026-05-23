@@ -29,6 +29,8 @@ CreatorPipelineStatus = Literal[
 ]
 CreatorDecision = Literal["approve", "reject", "hold"]
 CapabilityStatus = Literal["pending", "approved", "rejected", "unavailable"]
+CapabilityConsumptionStatus = Literal["blocked", "running", "completed", "failed"]
+CapabilityProviderStatus = Literal["not_bound", "approved_metadata_only", "provider_response_metadata_registered", "failed_metadata_registered"]
 CapabilityKind = Literal[
     "more_context",
     "better_coding",
@@ -88,6 +90,21 @@ class CapabilityDecisionIn(BaseModel):
 
 
 class CapabilityMetadataIn(BaseModel):
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CapabilityConsumeIn(BaseModel):
+    sender: CreatorSender = "user"
+    task: str = Field(min_length=3, max_length=300)
+    manual_approval: bool = False
+    execution_mode: Literal["safe_metadata"] = "safe_metadata"
+    usage_metadata: dict[str, Any] = Field(default_factory=dict)
+    cost_metadata: dict[str, Any] = Field(default_factory=dict)
+    provider_response_metadata: dict[str, Any] = Field(default_factory=dict)
+    result_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CapabilityConsumptionMetadataIn(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -166,6 +183,28 @@ class CapabilityRequestRecord(BaseModel):
     approved_metadata: dict[str, Any] | None = None
 
 
+class CapabilityConsumptionRecord(BaseModel):
+    id: str
+    capability_request_id: str
+    timestamp: str
+    sender: CreatorSender
+    reply_to: CapabilityReplyTarget
+    task: str
+    status: CapabilityConsumptionStatus
+    response: str
+    failure_reason: str | None = None
+    manual_approval: bool
+    execution_mode: Literal["safe_metadata"]
+    provider_status: CapabilityProviderStatus
+    external_api_called: bool
+    usage_metadata: dict[str, Any]
+    cost_metadata: dict[str, Any]
+    provider_response_metadata: dict[str, Any]
+    result_metadata: dict[str, Any]
+    governance: dict[str, Any]
+    timeline: list[CapabilityTimelineEvent]
+
+
 class CreatorCommandRecord(BaseModel):
     id: str
     timestamp: str
@@ -191,4 +230,6 @@ class CreatorConsoleState(BaseModel):
     commands: list[CreatorCommandRecord]
     outputs: list[CreatorOutput]
     capability_requests: list[CapabilityRequestRecord]
+    approved_capabilities: list[CapabilityRequestRecord]
+    capability_consumptions: list[CapabilityConsumptionRecord]
     audit_stream: list[dict]

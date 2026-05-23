@@ -273,3 +273,110 @@ def test_creator_capability_requests_are_sender_aware_and_audited() -> None:
     assert state.status_code == 200
     assert any(item["id"] == payload["id"] for item in state.json()["capability_requests"])
     assert any(event["event_type"] == "creator.capability_requested" for event in state.json()["audit_stream"])
+
+
+def test_approved_capability_consumption_safe_mode_tracks_usage_cost_and_audit() -> None:
+    created = client.post(
+        "/creator/capabilities",
+        json={
+            "sender": "user",
+            "objective": "Need OCR safe consumption",
+            "explanation": "FORJA needs OCR capability for safe-mode consumption validation.",
+            "requirements": [
+                {
+                    "kind": "ocr",
+                    "characteristics": ["metadata_only", "no_secret_collection"],
+                    "reason": "OCR is needed to inspect scanned documents.",
+                    "priority": "high",
+                }
+            ],
+        },
+    )
+    assert created.status_code == 200
+    capability = created.json()
+
+    blocked_not_approved = client.post(
+        f"/creator/capabilities/{capability['id']}/consume",
+        json={"sender": "user", "task": "Run OCR safe-mode validation", "manual_approval": True},
+    )
+    assert blocked_not_approved.status_code == 200
+    assert blocked_not_approved.json()["status"] == "blocked"
+    assert blocked_not_approved.json()["failure_reason"] == "capability_not_approved"
+    assert blocked_not_approved.json()["external_api_called"] is False
+
+    approved = client.post(f"/creator/capabilities/{capability['id']}/approve", json={"reason": "CEO approved safe-mode OCR."})
+    assert approved.status_code == 200
+    metadata = client.post(
+        f"/creator/capabilities/{capability['id']}/metadata",
+        json={"metadata": {"capability_scope": ["ocr"], "constraints": ["safe_mode", "no_direct_api_call"]}},
+    )
+    assert metadata.status_code == 200
+
+    blocked_missing_manual = client.post(
+        f"/creator/capabilities/{capability['id']}/consume",
+        json={"sender": "user", "task": "Run OCR without per-use approval", "manual_approval": False},
+    )
+    assert blocked_missing_manual.status_code == 200
+    assert blocked_missing_manual.json()["failure_reason"] == "missing_manual_consumption_approval"
+
+    consumed = client.post(
+        f"/creator/capabilities/{capability['id']}/consume",
+        json={
+            "sender": "user",
+            "task": "Run OCR safe-mode validation",
+            "manual_approval": True,
+            "usage_metadata": {"input_units": 2, "unit_type": "document_pages"},
+            "cost_metadata": {"amount": 0.12, "currency": "USD", "units": "2_pages"},
+            "provider_response_metadata": {"response_summary": "OCR text metadata was registered externally."},
+            "result_metadata": {"result_summary": "controlled_result_metadata_registered"},
+        },
+    )
+    assert consumed.status_code == 200
+    payload = consumed.json()
+    assert payload["status"] == "completed"
+    assert payload["response"] == "capability_consumption_completed_for_ceo"
+    assert payload["manual_approval"] is True
+    assert payload["external_api_called"] is False
+    assert payload["provider_status"] == "provider_response_metadata_registered"
+    assert payload["cost_metadata"]["amount"] == 0.12
+    assert payload["result_metadata"]["safe_mode"] is True
+
+    execution = client.post(
+        f"/creator/capability-consumptions/{payload['id']}/execution",
+        json={"metadata": {"execution_result": "safe_mode_record_updated"}},
+    )
+    assert execution.status_code == 200
+    assert execution.json()["result_metadata"]["execution_result"] == "safe_mode_record_updated"
+
+    usage = client.post(
+        f"/creator/capability-consumptions/{payload['id']}/usage",
+        json={"metadata": {"output_units": 2}},
+    )
+    assert usage.status_code == 200
+    assert usage.json()["usage_metadata"]["output_units"] == 2
+
+    cost = client.post(
+        f"/creator/capability-consumptions/{payload['id']}/cost",
+        json={"metadata": {"amount": 0.2, "currency": "USD", "units": "2_pages"}},
+    )
+    assert cost.status_code == 200
+    assert cost.json()["cost_metadata"]["amount"] == 0.2
+
+    provider_response = client.post(
+        f"/creator/capability-consumptions/{payload['id']}/provider-response",
+        json={"metadata": {"response_summary": "safe response metadata updated"}},
+    )
+    assert provider_response.status_code == 200
+    assert provider_response.json()["provider_response_metadata"]["response_summary"] == "safe response metadata updated"
+
+    listed = client.get("/creator/capability-consumptions", params={"capability_request_id": capability["id"]})
+    assert listed.status_code == 200
+    assert any(item["id"] == payload["id"] for item in listed.json())
+
+    state = client.get("/creator/console")
+    assert state.status_code == 200
+    assert any(item["id"] == capability["id"] for item in state.json()["approved_capabilities"])
+    assert any(item["id"] == payload["id"] for item in state.json()["capability_consumptions"])
+    audit_types = [event["event_type"] for event in state.json()["audit_stream"]]
+    assert "creator.capability_consumed" in audit_types
+    assert "creator.capability_cost_registered" in audit_types

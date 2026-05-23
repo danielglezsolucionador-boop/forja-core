@@ -320,6 +320,10 @@ a {
   grid-column: span 2;
 }
 
+.consumption-card {
+  grid-column: span 2;
+}
+
 .capability-form {
   display: grid;
   grid-template-columns: minmax(160px, 0.8fr) minmax(0, 1.2fr);
@@ -338,7 +342,9 @@ a {
   margin-top: 16px;
 }
 
-.capability-list button {
+.capability-list button,
+.approved-capability-list button,
+.consumption-list button {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.3fr) minmax(0, 0.7fr) auto;
   gap: 10px;
@@ -353,20 +359,43 @@ a {
   cursor: pointer;
 }
 
-.capability-list button.active {
+.capability-list button.active,
+.approved-capability-list button.active,
+.consumption-list button.active {
   border-color: rgba(239, 171, 99, 0.5);
   box-shadow: inset 0 1px 0 rgba(255, 221, 181, 0.1), 0 14px 30px rgba(154, 64, 28, 0.16);
 }
 
 .capability-list strong,
 .capability-list span,
-.capability-list small {
+.capability-list small,
+.approved-capability-list strong,
+.approved-capability-list span,
+.approved-capability-list small,
+.consumption-list strong,
+.consumption-list span {
   overflow-wrap: anywhere;
 }
 
-.capability-list small {
+.capability-list small,
+.approved-capability-list small {
   color: #d8a56d;
   font-weight: 850;
+}
+
+.approved-capability-list,
+.consumption-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.approved-capability-list button {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.3fr) minmax(0, 0.7fr);
+}
+
+.consumption-list button {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto;
 }
 
 .capability-detail {
@@ -383,6 +412,40 @@ a {
 
 .capability-timeline {
   margin-top: 14px;
+}
+
+.consumption-status {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.consumption-status div,
+.usage-timeline {
+  border-radius: 18px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.consumption-status span {
+  color: #d8a56d;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.consumption-status strong {
+  display: block;
+  margin-top: 8px;
+  color: #f7eadb;
+  overflow-wrap: anywhere;
+}
+
+.usage-timeline {
+  margin-top: 16px;
 }
 
 .output-toolbar {
@@ -1065,8 +1128,12 @@ a {
   .artifact-list button,
   .result-columns,
   .capability-card,
+  .consumption-card,
   .capability-form,
-  .capability-list button {
+  .capability-list button,
+  .approved-capability-list button,
+  .consumption-list button,
+  .consumption-status {
     grid-template-columns: 1fr;
     grid-column: auto;
   }

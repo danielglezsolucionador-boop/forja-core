@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   API_URL,
+  CapabilityConsumption,
   CapabilityKind,
   CapabilityRequest,
   CreatorCommand,
@@ -202,6 +203,7 @@ function CreatorConsole({
   capabilityObjective,
   capabilityExplanation,
   selectedCapability,
+  selectedConsumption,
   onCapabilityKind,
   onCapabilityObjective,
   onCapabilityExplanation,
@@ -209,6 +211,11 @@ function CreatorConsole({
   onSelectCapability,
   onCapabilityDecision,
   onAttachCapabilityMetadata,
+  onConsumeCapability,
+  onSelectConsumption,
+  onRegisterUsage,
+  onRegisterCost,
+  onRegisterProviderResponse,
   onDecision,
   onExecute,
 }: {
@@ -224,6 +231,7 @@ function CreatorConsole({
   capabilityObjective: string;
   capabilityExplanation: string;
   selectedCapability: CapabilityRequest | null;
+  selectedConsumption: CapabilityConsumption | null;
   onSender: (value: CreatorSender) => void;
   onCommand: (value: string) => void;
   onDetails: (value: string) => void;
@@ -238,6 +246,11 @@ function CreatorConsole({
   onSelectCapability: (value: CapabilityRequest) => void;
   onCapabilityDecision: (value: "approve" | "reject") => void;
   onAttachCapabilityMetadata: () => void;
+  onConsumeCapability: () => void;
+  onSelectConsumption: (value: CapabilityConsumption) => void;
+  onRegisterUsage: () => void;
+  onRegisterCost: () => void;
+  onRegisterProviderResponse: () => void;
   onDecision: (value: CreatorDecision) => void;
   onExecute: () => void;
 }) {
@@ -250,7 +263,12 @@ function CreatorConsole({
   const viewerOutput = selectedOutput ?? activeOutputs[activeOutputs.length - 1] ?? globalOutputs[globalOutputs.length - 1] ?? null;
   const proposedStructure = viewerOutput ? contentList(viewerOutput.content, "proposed_structure") : [];
   const capabilities = state.data?.capability_requests ?? [];
+  const approvedCapabilities = state.data?.approved_capabilities ?? [];
+  const consumptions = state.data?.capability_consumptions ?? [];
   const activeCapability = selectedCapability ?? capabilities[capabilities.length - 1] ?? null;
+  const activeConsumption = selectedConsumption ?? consumptions[consumptions.length - 1] ?? null;
+  const costAmount = activeConsumption?.cost_metadata?.amount;
+  const costCurrency = activeConsumption?.cost_metadata?.currency;
   return (
     <section className="creator-console" id="creator-console">
       <div className="section-heading">
@@ -422,6 +440,71 @@ function CreatorConsole({
           ))}
         </section>
 
+        <section className="creator-card consumption-card">
+          <div className="card-topline">
+            <span>Approved capabilities</span>
+            <StatusBadge value={approvedCapabilities.length} tone={approvedCapabilities.length ? "green" : "steel"} />
+          </div>
+          <div className="approved-capability-list">
+            {approvedCapabilities.length ? approvedCapabilities.slice(-4).reverse().map((item) => (
+              <button key={item.id} type="button" onClick={() => onSelectCapability(item)} className={activeCapability?.id === item.id ? "active" : ""}>
+                <strong>{item.requirements[0]?.kind ?? "capability"}</strong>
+                <span>{item.objective}</span>
+                <small>reply={item.reply_to}</small>
+              </button>
+            )) : <p>No approved capabilities ready for consumption.</p>}
+          </div>
+          <div className="consumption-status">
+            <div>
+              <span>Active capability</span>
+              <strong>{activeCapability?.requirements[0]?.kind ?? "none"}</strong>
+            </div>
+            <div>
+              <span>Consumption status</span>
+              <strong>{activeConsumption?.status ?? "not_started"}</strong>
+            </div>
+            <div>
+              <span>Provider status</span>
+              <strong>{activeConsumption?.provider_status ?? "not_bound"}</strong>
+            </div>
+            <div>
+              <span>Cost visibility</span>
+              <strong>{costAmount ? `${costAmount} ${display(costCurrency, "")}` : "not reported"}</strong>
+            </div>
+          </div>
+          <div className="capability-actions">
+            <ActionButton onClick={onConsumeCapability}>consume approved capability</ActionButton>
+            <ActionButton variant="ghost" onClick={onRegisterUsage}>register usage</ActionButton>
+            <ActionButton variant="ghost" onClick={onRegisterCost}>register cost</ActionButton>
+            <ActionButton variant="ghost" onClick={onRegisterProviderResponse}>register provider response metadata</ActionButton>
+          </div>
+          <div className="consumption-list">
+            {consumptions.length ? consumptions.slice(-4).reverse().map((item) => (
+              <button key={item.id} type="button" onClick={() => onSelectConsumption(item)} className={activeConsumption?.id === item.id ? "active" : ""}>
+                <strong>{item.task}</strong>
+                <span>{item.response}</span>
+                <StatusBadge value={item.status} tone={toneForStatus(item.status)} />
+              </button>
+            )) : <p>No capability consumption records yet.</p>}
+          </div>
+          {activeConsumption ? (
+            <div className="usage-timeline">
+              <div className="classification-strip">
+                <span>manual_approval={String(activeConsumption.manual_approval)}</span>
+                <span>external_api_called={String(activeConsumption.external_api_called)}</span>
+                <span>reply={activeConsumption.reply_to}</span>
+              </div>
+              {activeConsumption.failure_reason ? <p>{activeConsumption.failure_reason}</p> : null}
+              {activeConsumption.timeline.slice(-5).map((event) => (
+                <div key={`${event.timestamp}-${event.event}`} className="timeline-row">
+                  <strong>{event.event}</strong>
+                  <span>{event.detail}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </section>
+
         <section className="creator-card output-manager-card">
           <div className="card-topline">
             <span>Output manager</span>
@@ -535,6 +618,7 @@ export default function App() {
   const [capabilityObjective, setCapabilityObjective] = useState("Request stronger reasoning capability");
   const [capabilityExplanation, setCapabilityExplanation] = useState("FORJA needs a stronger reasoning capability for advanced planning. No provider, cost, or API call is selected.");
   const [selectedCapability, setSelectedCapability] = useState<CapabilityRequest | null>(null);
+  const [selectedConsumption, setSelectedConsumption] = useState<CapabilityConsumption | null>(null);
   const { health, runtime } = useRuntimeData(refreshKey);
   const creatorState = useCreatorConsole(creatorRefreshKey);
 
@@ -628,6 +712,75 @@ export default function App() {
       .catch((error: Error) => setCreatorMessage(error.message))
       .finally(() => setCreatorBusy(false));
   };
+  const consumeCapability = () => {
+    if (!selectedCapability) {
+      setCreatorMessage("Select an approved capability before consumption.");
+      return;
+    }
+    setCreatorBusy(true);
+    postJson<CapabilityConsumption>(`/creator/capabilities/${selectedCapability.id}/consume`, {
+      sender: creatorSender,
+      task: `Safe-mode consumption: ${selectedCapability.objective}`,
+      manual_approval: true,
+      execution_mode: "safe_metadata",
+      usage_metadata: { input_units: 1, unit_type: "controlled_task" },
+      cost_metadata: { amount: 0, currency: "USD", units: "metadata_only", note: "No external API call performed in safe-mode smoke." },
+      provider_response_metadata: { response_summary: "No provider call performed; metadata wrapper consumed approved capability." },
+      result_metadata: { result_summary: "safe_mode_consumption_recorded" },
+    })
+      .then((record) => {
+        setSelectedConsumption(record);
+        setCreatorMessage(`Capability consumption routed to ${record.reply_to}: ${record.response}`);
+        setCreatorRefreshKey((key) => key + 1);
+      })
+      .catch((error: Error) => setCreatorMessage(error.message))
+      .finally(() => setCreatorBusy(false));
+  };
+  const registerConsumptionUsage = () => {
+    if (!selectedConsumption) {
+      setCreatorMessage("Select or create a consumption record before registering usage.");
+      return;
+    }
+    setCreatorBusy(true);
+    postJson<CapabilityConsumption>(`/creator/capability-consumptions/${selectedConsumption.id}/usage`, { metadata: { output_units: 1, unit_type: "controlled_task" } })
+      .then((record) => {
+        setSelectedConsumption(record);
+        setCreatorMessage("Usage metadata registered.");
+        setCreatorRefreshKey((key) => key + 1);
+      })
+      .catch((error: Error) => setCreatorMessage(error.message))
+      .finally(() => setCreatorBusy(false));
+  };
+  const registerConsumptionCost = () => {
+    if (!selectedConsumption) {
+      setCreatorMessage("Select or create a consumption record before registering cost.");
+      return;
+    }
+    setCreatorBusy(true);
+    postJson<CapabilityConsumption>(`/creator/capability-consumptions/${selectedConsumption.id}/cost`, { metadata: { amount: 0, currency: "USD", units: "metadata_only", note: "Safe-mode UI registration did not perform external API call." } })
+      .then((record) => {
+        setSelectedConsumption(record);
+        setCreatorMessage("Cost metadata registered.");
+        setCreatorRefreshKey((key) => key + 1);
+      })
+      .catch((error: Error) => setCreatorMessage(error.message))
+      .finally(() => setCreatorBusy(false));
+  };
+  const registerProviderResponseMetadata = () => {
+    if (!selectedConsumption) {
+      setCreatorMessage("Select or create a consumption record before registering provider response metadata.");
+      return;
+    }
+    setCreatorBusy(true);
+    postJson<CapabilityConsumption>(`/creator/capability-consumptions/${selectedConsumption.id}/provider-response`, { metadata: { response_summary: "Provider response metadata registered by operator; no secrets stored." } })
+      .then((record) => {
+        setSelectedConsumption(record);
+        setCreatorMessage("Provider response metadata registered.");
+        setCreatorRefreshKey((key) => key + 1);
+      })
+      .catch((error: Error) => setCreatorMessage(error.message))
+      .finally(() => setCreatorBusy(false));
+  };
   const submitCreatorCommand = () => {
     setCreatorBusy(true);
     setCreatorMessage(null);
@@ -689,6 +842,7 @@ export default function App() {
         capabilityObjective={capabilityObjective}
         capabilityExplanation={capabilityExplanation}
         selectedCapability={selectedCapability}
+        selectedConsumption={selectedConsumption}
         onSender={setCreatorSender}
         onCommand={setCreatorCommand}
         onDetails={setCreatorDetails}
@@ -706,6 +860,11 @@ export default function App() {
         onSelectCapability={setSelectedCapability}
         onCapabilityDecision={decideCapabilityRequest}
         onAttachCapabilityMetadata={attachCapabilityMetadata}
+        onConsumeCapability={consumeCapability}
+        onSelectConsumption={setSelectedConsumption}
+        onRegisterUsage={registerConsumptionUsage}
+        onRegisterCost={registerConsumptionCost}
+        onRegisterProviderResponse={registerProviderResponseMetadata}
         onDecision={decideCreatorCommand}
         onExecute={executeCreatorCommand}
       />

@@ -70,6 +70,27 @@ export type CapabilityRequest = {
   timeline: Array<{ timestamp: string; event: string; detail: string }>;
   approved_metadata: Record<string, unknown> | null;
 };
+export type CapabilityConsumption = {
+  id: string;
+  capability_request_id: string;
+  timestamp: string;
+  sender: CreatorSender;
+  reply_to: "ceo" | "cerebro" | "seo" | "system";
+  task: string;
+  status: "blocked" | "running" | "completed" | "failed";
+  response: string;
+  failure_reason: string | null;
+  manual_approval: boolean;
+  execution_mode: "safe_metadata";
+  provider_status: "not_bound" | "approved_metadata_only" | "provider_response_metadata_registered" | "failed_metadata_registered";
+  external_api_called: boolean;
+  usage_metadata: Record<string, unknown>;
+  cost_metadata: Record<string, unknown>;
+  provider_response_metadata: Record<string, unknown>;
+  result_metadata: Record<string, unknown>;
+  governance: Record<string, unknown>;
+  timeline: Array<{ timestamp: string; event: string; detail: string }>;
+};
 export type CreatorOutputType =
   | "proposed_app_structure"
   | "api_blueprint"
@@ -130,6 +151,8 @@ export type CreatorConsoleState = {
   commands: CreatorCommand[];
   outputs: CreatorOutput[];
   capability_requests: CapabilityRequest[];
+  approved_capabilities: CapabilityRequest[];
+  capability_consumptions: CapabilityConsumption[];
   audit_stream: Array<Record<string, unknown>>;
 };
 
