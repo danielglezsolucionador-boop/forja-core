@@ -67,7 +67,7 @@ function toneForStatus(status?: string | boolean): Tone {
   if (status === false) return "amber";
   const value = String(status ?? "").toLowerCase();
   if (["ok", "active", "available", "approved", "true", "connection_ok"].includes(value)) return "green";
-  if (["degraded", "disabled", "pending", "not_started_by_design", "blocked_provider_disabled", "local_queue", "loading"].includes(value)) return "amber";
+  if (["degraded", "degraded_by_governance_blocks", "attention_required", "disabled", "pending", "not_started_by_design", "blocked_provider_disabled", "local_queue", "loading"].includes(value)) return "amber";
   if (["error", "failed", "critical", "rejected", "unavailable", "false"].includes(value)) return "red";
   return "steel";
 }
@@ -269,6 +269,18 @@ function CreatorConsole({
   const activeConsumption = selectedConsumption ?? consumptions[consumptions.length - 1] ?? null;
   const costAmount = activeConsumption?.cost_metadata?.amount;
   const costCurrency = activeConsumption?.cost_metadata?.currency;
+  const runtimeMetrics = state.data?.capability_runtime_metrics;
+  const providerHealth = state.data?.provider_health;
+  const runtimeEvents = state.data?.capability_runtime_events ?? [];
+  const auditSummary = state.data?.capability_audit_summary ?? {};
+  const costOverview = runtimeMetrics && Object.keys(runtimeMetrics.cost_by_currency).length
+    ? Object.entries(runtimeMetrics.cost_by_currency).map(([currency, amount]) => `${amount} ${currency}`).join(" / ")
+    : "not reported";
+  const failureEntries = runtimeMetrics ? Object.entries(runtimeMetrics.failure_classification_counts) : [];
+  const escalationEntries = runtimeMetrics ? Object.entries(runtimeMetrics.governance_escalations) : [];
+  const auditEventCounts = typeof auditSummary.event_counts === "object" && auditSummary.event_counts !== null
+    ? Object.entries(auditSummary.event_counts as Record<string, number>)
+    : [];
   return (
     <section className="creator-console" id="creator-console">
       <div className="section-heading">
@@ -501,6 +513,77 @@ function CreatorConsole({
                   <span>{event.detail}</span>
                 </div>
               ))}
+            </div>
+          ) : null}
+        </section>
+
+        <section className="creator-card runtime-observability-card">
+          <div className="card-topline">
+            <span>Provider runtime dashboard</span>
+            <StatusBadge value={providerHealth?.status ?? "not_bound"} tone={toneForStatus(providerHealth?.status ?? "disabled")} />
+          </div>
+          <div className="runtime-dashboard-grid">
+            <div>
+              <span>Capability health</span>
+              <strong>{runtimeMetrics?.total_consumptions ?? 0} records</strong>
+              <small>completed={runtimeMetrics?.status_counts.completed ?? 0} blocked={runtimeMetrics?.status_counts.blocked ?? 0} failed={runtimeMetrics?.status_counts.failed ?? 0}</small>
+            </div>
+            <div>
+              <span>Provider health</span>
+              <strong>{providerHealth?.external_provider ?? "not_selected"}</strong>
+              <small>bound={String(providerHealth?.provider_bound ?? false)} calls={providerHealth?.external_api_calls ?? 0}</small>
+            </div>
+            <div>
+              <span>Execution analytics</span>
+              <strong>risk {runtimeMetrics?.risk.average ?? 0}/{runtimeMetrics?.risk.peak ?? 0}</strong>
+              <small>timeouts_prevented={runtimeMetrics?.timeouts_prevented ?? 0}</small>
+            </div>
+            <div>
+              <span>Cost overview</span>
+              <strong>{costOverview}</strong>
+              <small>hidden_costs=false external_api_calls={runtimeMetrics?.external_api_calls ?? 0}</small>
+            </div>
+          </div>
+          <div className="observability-columns">
+            <div>
+              <strong>Provider failure viewer</strong>
+              {failureEntries.length ? failureEntries.map(([name, count]) => (
+                <span key={name}>{name}: {count}</span>
+              )) : <span>none</span>}
+            </div>
+            <div>
+              <strong>Governance escalation states</strong>
+              {escalationEntries.length ? escalationEntries.map(([name, count]) => (
+                <span key={name}>{name}: {count}</span>
+              )) : <span>none</span>}
+            </div>
+            <div>
+              <strong>Audit explorer</strong>
+              {auditEventCounts.length ? auditEventCounts.slice(-5).map(([name, count]) => (
+                <span key={name}>{name}: {count}</span>
+              )) : <span>no capability audit events</span>}
+            </div>
+          </div>
+          <div className="runtime-event-stream">
+            {runtimeEvents.length ? runtimeEvents.slice(-6).reverse().map((event) => (
+              <div key={event.id} className="timeline-row">
+                <strong>{event.event_type}</strong>
+                <span>{event.severity} - failure={event.failure_classification} - risk={event.risk_score} - replay={event.replay_key}</span>
+              </div>
+            )) : <p>No runtime events observed yet.</p>}
+          </div>
+          {activeConsumption ? (
+            <div className="replay-metadata-panel">
+              <div className="card-topline">
+                <span>Execution replay metadata</span>
+                <StatusBadge value={activeConsumption.governance_escalation} tone={toneForStatus(activeConsumption.status)} />
+              </div>
+              <div className="classification-strip">
+                <span>replay={String(activeConsumption.replay_metadata.replay_key ?? "pending")}</span>
+                <span>timeout_ms={activeConsumption.timeout_ms}</span>
+                <span>failure={activeConsumption.failure_classification}</span>
+                <span>risk={activeConsumption.risk_score}</span>
+              </div>
             </div>
           ) : null}
         </section>

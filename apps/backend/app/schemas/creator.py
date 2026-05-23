@@ -98,6 +98,7 @@ class CapabilityConsumeIn(BaseModel):
     task: str = Field(min_length=3, max_length=300)
     manual_approval: bool = False
     execution_mode: Literal["safe_metadata"] = "safe_metadata"
+    timeout_ms: int = Field(default=30000, ge=1, le=120000)
     usage_metadata: dict[str, Any] = Field(default_factory=dict)
     cost_metadata: dict[str, Any] = Field(default_factory=dict)
     provider_response_metadata: dict[str, Any] = Field(default_factory=dict)
@@ -195,12 +196,17 @@ class CapabilityConsumptionRecord(BaseModel):
     failure_reason: str | None = None
     manual_approval: bool
     execution_mode: Literal["safe_metadata"]
+    timeout_ms: int
     provider_status: CapabilityProviderStatus
     external_api_called: bool
+    failure_classification: str
+    risk_score: int
+    governance_escalation: str
     usage_metadata: dict[str, Any]
     cost_metadata: dict[str, Any]
     provider_response_metadata: dict[str, Any]
     result_metadata: dict[str, Any]
+    replay_metadata: dict[str, Any]
     governance: dict[str, Any]
     timeline: list[CapabilityTimelineEvent]
 
@@ -232,4 +238,8 @@ class CreatorConsoleState(BaseModel):
     capability_requests: list[CapabilityRequestRecord]
     approved_capabilities: list[CapabilityRequestRecord]
     capability_consumptions: list[CapabilityConsumptionRecord]
+    capability_runtime_metrics: dict[str, Any]
+    capability_runtime_events: list[dict[str, Any]]
+    provider_health: dict[str, Any]
+    capability_audit_summary: dict[str, Any]
     audit_stream: list[dict]

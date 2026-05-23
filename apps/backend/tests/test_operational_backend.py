@@ -380,3 +380,106 @@ def test_approved_capability_consumption_safe_mode_tracks_usage_cost_and_audit()
     audit_types = [event["event_type"] for event in state.json()["audit_stream"]]
     assert "creator.capability_consumed" in audit_types
     assert "creator.capability_cost_registered" in audit_types
+
+
+def test_capability_runtime_observability_audit_replay_and_governance() -> None:
+    created = client.post(
+        "/creator/capabilities",
+        json={
+            "sender": "cerebro",
+            "objective": "Need controlled reasoning observability",
+            "explanation": "Cerebro needs a safe approved capability so FORJA can validate runtime observability.",
+            "requirements": [
+                {
+                    "kind": "strong_reasoning",
+                    "characteristics": ["observability", "audit_replay"],
+                    "reason": "Runtime metrics and audit replay must be visible before any external provider is used.",
+                    "priority": "high",
+                }
+            ],
+        },
+    )
+    assert created.status_code == 200
+    capability = created.json()
+
+    approved = client.post(f"/creator/capabilities/{capability['id']}/approve", json={"reason": "Cerebro approved safe-mode observability."})
+    assert approved.status_code == 200
+    metadata = client.post(
+        f"/creator/capabilities/{capability['id']}/metadata",
+        json={"metadata": {"capability_scope": ["strong_reasoning"], "constraints": ["safe_mode", "audit_first"]}},
+    )
+    assert metadata.status_code == 200
+
+    timeout_block = client.post(
+        f"/creator/capabilities/{capability['id']}/consume",
+        json={
+            "sender": "cerebro",
+            "task": "Prevent unsafe near-zero timeout",
+            "manual_approval": True,
+            "timeout_ms": 50,
+        },
+    )
+    assert timeout_block.status_code == 200
+    assert timeout_block.json()["status"] == "blocked"
+    assert timeout_block.json()["failure_classification"] == "timeout"
+    assert timeout_block.json()["governance_escalation"] in {"review_required", "escalated_to_cerebro"}
+
+    consumed = client.post(
+        f"/creator/capabilities/{capability['id']}/consume",
+        json={
+            "sender": "cerebro",
+            "task": "Run safe metadata observability",
+            "manual_approval": True,
+            "timeout_ms": 30000,
+            "usage_metadata": {"input_units": 3, "unit_type": "planning_chunks"},
+            "cost_metadata": {"amount": 1.25, "currency": "USD", "units": "metadata_only"},
+            "provider_response_metadata": {"response_summary": "Operator registered provider response metadata only."},
+            "result_metadata": {"result_summary": "runtime_observability_recorded"},
+        },
+    )
+    assert consumed.status_code == 200
+    payload = consumed.json()
+    assert payload["status"] == "completed"
+    assert payload["failure_classification"] == "none"
+    assert payload["risk_score"] >= 15
+    assert payload["external_api_called"] is False
+    assert payload["replay_metadata"]["mode"] == "metadata_only_replay"
+
+    failed_metadata = client.post(
+        f"/creator/capability-consumptions/{payload['id']}/provider-response",
+        json={"metadata": {"provider": "not_allowed_in_safe_mode"}},
+    )
+    assert failed_metadata.status_code == 200
+    assert failed_metadata.json()["status"] == "failed"
+    assert failed_metadata.json()["failure_classification"] == "provider_boundary"
+
+    metrics = client.get("/creator/capability-runtime/metrics")
+    assert metrics.status_code == 200
+    metrics_payload = metrics.json()
+    assert metrics_payload["external_api_calls"] == 0
+    assert metrics_payload["cost_by_currency"]["USD"] >= 1.25
+    assert metrics_payload["failure_classification_counts"]["timeout"] >= 1
+
+    events = client.get("/creator/capability-runtime/events")
+    assert events.status_code == 200
+    assert any(event["event_type"] == "capability.consumption_recorded" for event in events.json())
+    assert any(event["failure_classification"] in {"timeout", "provider_boundary", "none"} for event in events.json())
+
+    provider_health = client.get("/creator/capability-runtime/provider-health")
+    assert provider_health.status_code == 200
+    assert provider_health.json()["provider_bound"] is False
+    assert provider_health.json()["external_api_calls_enabled"] is False
+
+    replay = client.get(f"/creator/capability-consumptions/{payload['id']}/replay")
+    assert replay.status_code == 200
+    assert replay.json()["external_api_called"] is False
+    assert "provider_switching" in replay.json()["blocked_actions"]
+
+    audit_summary = client.get("/creator/capability-runtime/audit-summary")
+    assert audit_summary.status_code == 200
+    assert audit_summary.json()["replay_supported"] is True
+
+    state = client.get("/creator/console")
+    assert state.status_code == 200
+    assert state.json()["capability_runtime_metrics"]["external_api_calls"] == 0
+    assert state.json()["provider_health"]["external_provider"] == "not_selected"

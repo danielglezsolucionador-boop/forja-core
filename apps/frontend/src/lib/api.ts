@@ -82,14 +82,70 @@ export type CapabilityConsumption = {
   failure_reason: string | null;
   manual_approval: boolean;
   execution_mode: "safe_metadata";
+  timeout_ms: number;
   provider_status: "not_bound" | "approved_metadata_only" | "provider_response_metadata_registered" | "failed_metadata_registered";
   external_api_called: boolean;
+  failure_classification: string;
+  risk_score: number;
+  governance_escalation: string;
   usage_metadata: Record<string, unknown>;
   cost_metadata: Record<string, unknown>;
   provider_response_metadata: Record<string, unknown>;
   result_metadata: Record<string, unknown>;
+  replay_metadata: Record<string, unknown>;
   governance: Record<string, unknown>;
   timeline: Array<{ timestamp: string; event: string; detail: string }>;
+};
+
+export type CapabilityRuntimeMetrics = {
+  generated_at: string;
+  mode: string;
+  total_consumptions: number;
+  status_counts: Record<string, number>;
+  provider_status_counts: Record<string, number>;
+  failure_classification_counts: Record<string, number>;
+  governance_escalations: Record<string, number>;
+  manual_approval: Record<string, number>;
+  external_api_calls: number;
+  timeouts_prevented: number;
+  cost_by_currency: Record<string, number>;
+  risk: { average: number; peak: number; scored_records: number };
+  controls: Record<string, unknown>;
+};
+
+export type CapabilityRuntimeEvent = {
+  id: string;
+  timestamp: string;
+  event_type: string;
+  severity: "info" | "warning" | "error";
+  capability_request_id: string;
+  consumption_id: string;
+  sender: CreatorSender;
+  reply_to: "ceo" | "cerebro" | "seo" | "system";
+  status: string;
+  provider_status: string;
+  failure_classification: string;
+  risk_score: number;
+  governance_escalation: string;
+  external_api_called: boolean;
+  timeout_ms: number;
+  replay_key: string;
+  detail: string;
+};
+
+export type ProviderHealthState = {
+  id: string;
+  name: string;
+  status: string;
+  provider_bound: boolean;
+  external_provider: string;
+  external_api_calls_enabled: boolean;
+  external_api_calls: number;
+  monitored_consumptions: number;
+  blocked_or_failed: number;
+  timeouts_prevented: number;
+  last_event_at: string | null;
+  detail: string;
 };
 export type CreatorOutputType =
   | "proposed_app_structure"
@@ -153,6 +209,10 @@ export type CreatorConsoleState = {
   capability_requests: CapabilityRequest[];
   approved_capabilities: CapabilityRequest[];
   capability_consumptions: CapabilityConsumption[];
+  capability_runtime_metrics: CapabilityRuntimeMetrics;
+  capability_runtime_events: CapabilityRuntimeEvent[];
+  provider_health: ProviderHealthState;
+  capability_audit_summary: Record<string, unknown>;
   audit_stream: Array<Record<string, unknown>>;
 };
 

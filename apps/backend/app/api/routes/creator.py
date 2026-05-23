@@ -142,6 +142,34 @@ def list_capability_consumptions(capability_request_id: str | None = None, limit
     return creator_service.list_capability_consumptions(capability_request_id=capability_request_id, limit=limit)
 
 
+@router.get("/capability-runtime/metrics")
+def capability_runtime_metrics() -> dict:
+    return creator_service.capability_runtime_metrics()
+
+
+@router.get("/capability-runtime/events")
+def list_capability_runtime_events(limit: int = 100) -> list[dict]:
+    return creator_service.list_capability_runtime_events(limit=limit)
+
+
+@router.get("/capability-runtime/provider-health")
+def capability_provider_health() -> dict:
+    return creator_service.provider_health_state()
+
+
+@router.get("/capability-runtime/audit-summary")
+def capability_audit_summary(limit: int = 100) -> dict:
+    return creator_service.capability_audit_summary(limit=limit)
+
+
+@router.get("/capability-consumptions/{consumption_id}/replay")
+def capability_consumption_replay(consumption_id: str) -> dict:
+    replay = creator_service.get_capability_replay(consumption_id)
+    if replay is None:
+        raise HTTPException(status_code=404, detail="capability_consumption_not_found")
+    return replay
+
+
 @router.post("/capability-consumptions/{consumption_id}/execution", response_model=CapabilityConsumptionRecord)
 def register_capability_execution(consumption_id: str, payload: CapabilityConsumptionMetadataIn) -> dict:
     record = creator_service.register_capability_execution(consumption_id, payload.metadata)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 from typing import Any
 
 from app.core.audit import append_audit_event, read_audit_events, utc_now
@@ -33,6 +34,7 @@ class CreatorService:
         self._commands = store("creator_commands")
         self._capabilities = store("creator_capability_requests")
         self._capability_consumptions = store("creator_capability_consumptions")
+        self._capability_runtime_events = store("creator_capability_runtime_events")
 
     def console_state(self, limit: int = 50) -> dict:
         return {
@@ -44,6 +46,10 @@ class CreatorService:
             "capability_requests": self.list_capability_requests(limit=100),
             "approved_capabilities": self.list_approved_capabilities(limit=100),
             "capability_consumptions": self.list_capability_consumptions(limit=100),
+            "capability_runtime_metrics": self.capability_runtime_metrics(),
+            "capability_runtime_events": self.list_capability_runtime_events(limit=80),
+            "provider_health": self.provider_health_state(),
+            "capability_audit_summary": self.capability_audit_summary(limit=80),
             "audit_stream": read_audit_events(60),
         }
 
@@ -418,19 +424,28 @@ class CreatorService:
                 ]
             )
         self._capability_consumptions.update([], lambda records: records.append(record))
+        normalized = self._normalize_capability_consumption(record)
+        self._append_capability_runtime_event(
+            normalized,
+            "capability.consumption_recorded",
+            "Capability consumption was recorded by the safe-mode wrapper.",
+        )
         append_audit_event(
             "creator.capability_consumed",
             sender,
             {
-                "id": record["id"],
+                "id": normalized["id"],
                 "capability_request_id": request_id,
-                "status": record["status"],
-                "response": record["response"],
-                "external_api_called": record["external_api_called"],
+                "status": normalized["status"],
+                "response": normalized["response"],
+                "external_api_called": normalized["external_api_called"],
+                "failure_classification": normalized["failure_classification"],
+                "risk_score": normalized["risk_score"],
+                "governance_escalation": normalized["governance_escalation"],
             },
-            risk="medium",
+            risk=self._audit_risk_from_score(normalized["risk_score"]),
         )
-        return self._normalize_capability_consumption(record)
+        return normalized
 
     def list_approved_capabilities(self, limit: int = 100) -> list[dict]:
         approved = [
@@ -471,6 +486,116 @@ class CreatorService:
 
     def register_capability_provider_response(self, consumption_id: str, metadata: dict) -> dict | None:
         return self._update_capability_consumption_metadata(consumption_id, "provider_response", metadata)
+
+    def list_capability_runtime_events(self, limit: int = 100) -> list[dict]:
+        events = [self._normalize_capability_runtime_event(event) for event in self._capability_runtime_events.read([])]
+        covered_consumptions = {event.get("consumption_id") for event in events if event.get("consumption_id")}
+        for consumption in self.list_capability_consumptions(limit=1000):
+            if consumption["id"] in covered_consumptions:
+                continue
+            events.append(
+                self._make_capability_runtime_event(
+                    consumption,
+                    "capability.runtime_snapshot",
+                    "Runtime event derived from an existing safe-mode consumption record.",
+                    event_id=f"derived-{consumption['id']}",
+                )
+            )
+        events.sort(key=lambda event: event.get("timestamp", ""))
+        return events[-limit:]
+
+    def capability_runtime_metrics(self) -> dict:
+        records = self.list_capability_consumptions(limit=1000)
+        status_counts = Counter(record["status"] for record in records)
+        provider_counts = Counter(record["provider_status"] for record in records)
+        failure_counts = Counter(record["failure_classification"] for record in records)
+        escalation_counts = Counter(record["governance_escalation"] for record in records)
+        manual_approval_counts = Counter("approved" if record["manual_approval"] else "missing" for record in records)
+        cost_by_currency: dict[str, float] = {}
+        for record in records:
+            cost = record.get("cost_metadata", {})
+            amount = cost.get("amount")
+            currency = str(cost.get("currency") or "unreported")
+            if isinstance(amount, int | float):
+                cost_by_currency[currency] = round(cost_by_currency.get(currency, 0.0) + float(amount), 6)
+        risk_scores = [int(record["risk_score"]) for record in records]
+        return {
+            "generated_at": utc_now(),
+            "mode": "safe_metadata_observability",
+            "total_consumptions": len(records),
+            "status_counts": dict(status_counts),
+            "provider_status_counts": dict(provider_counts),
+            "failure_classification_counts": dict(failure_counts),
+            "governance_escalations": dict(escalation_counts),
+            "manual_approval": dict(manual_approval_counts),
+            "external_api_calls": sum(1 for record in records if record["external_api_called"]),
+            "timeouts_prevented": failure_counts.get("timeout", 0),
+            "cost_by_currency": cost_by_currency,
+            "risk": {
+                "average": round(sum(risk_scores) / len(risk_scores), 2) if risk_scores else 0,
+                "peak": max(risk_scores) if risk_scores else 0,
+                "scored_records": len(risk_scores),
+            },
+            "controls": {
+                "zero_write_policy": True,
+                "human_in_the_loop": True,
+                "provider_auto_switching": False,
+                "auto_purchase": False,
+                "external_api_calls_enabled": False,
+            },
+        }
+
+    def provider_health_state(self) -> dict:
+        records = self.list_capability_consumptions(limit=1000)
+        latest = records[-1] if records else None
+        failures = [record for record in records if record["status"] in {"blocked", "failed"}]
+        timeouts = [record for record in records if record["failure_classification"] == "timeout"]
+        status = "healthy"
+        if timeouts or any(record["status"] == "failed" for record in records):
+            status = "attention_required"
+        elif failures:
+            status = "degraded_by_governance_blocks"
+        return {
+            "id": "capability.safe_metadata_wrapper",
+            "name": "Safe metadata capability wrapper",
+            "status": status,
+            "provider_bound": False,
+            "external_provider": "not_selected",
+            "external_api_calls_enabled": False,
+            "external_api_calls": sum(1 for record in records if record["external_api_called"]),
+            "monitored_consumptions": len(records),
+            "blocked_or_failed": len(failures),
+            "timeouts_prevented": len(timeouts),
+            "last_event_at": latest["timestamp"] if latest else None,
+            "detail": "FORJA observes approved capability usage without autonomous provider calls or provider switching.",
+        }
+
+    def capability_audit_summary(self, limit: int = 100) -> dict:
+        audit_events = [event for event in read_audit_events(limit) if str(event.get("event_type", "")).startswith("creator.capability")]
+        risk_counts = Counter(str(event.get("risk", "low")) for event in audit_events)
+        event_counts = Counter(str(event.get("event_type", "creator.capability_unknown")) for event in audit_events)
+        return {
+            "total_events": len(audit_events),
+            "risk_counts": dict(risk_counts),
+            "event_counts": dict(event_counts),
+            "replay_supported": True,
+            "last_events": audit_events[-12:],
+        }
+
+    def get_capability_replay(self, consumption_id: str) -> dict | None:
+        record = self.get_capability_consumption(consumption_id)
+        if record is None:
+            return None
+        return {
+            **record["replay_metadata"],
+            "runtime_events": [
+                event
+                for event in self.list_capability_runtime_events(limit=1000)
+                if event.get("consumption_id") == consumption_id
+            ],
+            "timeline": record["timeline"],
+            "audit_note": "Replay metadata is metadata-only and excludes secrets, provider credentials, autonomous writes, and external API payloads.",
+        }
 
     def list_commands(self, limit: int = 50) -> list[dict]:
         return [self._normalize_record(record) for record in self._commands.read([])[-limit:]]
@@ -880,6 +1005,8 @@ class CreatorService:
         return False
 
     def _capability_consumption_blocker(self, capability: dict, payload: dict) -> str | None:
+        if int(payload.get("timeout_ms", 30000)) < 100:
+            return "capability_timeout_prevented"
         if capability["status"] != "approved":
             return "capability_not_approved"
         if capability.get("approved_metadata") is None:
@@ -921,6 +1048,7 @@ class CreatorService:
             "failure_reason": failure_reason,
             "manual_approval": payload.get("manual_approval") is True,
             "execution_mode": "safe_metadata",
+            "timeout_ms": int(payload.get("timeout_ms", 30000)),
             "provider_status": provider_status,
             "external_api_called": False,
             "usage_metadata": usage_metadata,
@@ -951,13 +1079,24 @@ class CreatorService:
         normalized.setdefault("failure_reason", None)
         normalized.setdefault("manual_approval", False)
         normalized.setdefault("execution_mode", "safe_metadata")
+        normalized.setdefault("timeout_ms", 30000)
         normalized.setdefault("provider_status", "not_bound")
         normalized.setdefault("external_api_called", False)
         normalized.setdefault("usage_metadata", {})
         normalized.setdefault("cost_metadata", self._default_cost_metadata())
         normalized.setdefault("provider_response_metadata", {})
         normalized.setdefault("result_metadata", {})
-        normalized.setdefault("governance", self._capability_consumption_governance(normalized["status"]))
+        governance = self._capability_consumption_governance(normalized["status"])
+        governance.update(normalized.get("governance", {}))
+        normalized["governance"] = governance
+        normalized["failure_classification"] = self._classify_capability_failure(normalized)
+        normalized["risk_score"] = self._capability_risk_score(normalized)
+        normalized["governance_escalation"] = self._capability_governance_escalation(normalized)
+        normalized["replay_metadata"] = self._capability_replay_metadata(normalized)
+        normalized["governance"]["risk_score"] = normalized["risk_score"]
+        normalized["governance"]["failure_classification"] = normalized["failure_classification"]
+        normalized["governance"]["escalation_state"] = normalized["governance_escalation"]
+        normalized["governance"]["timeout_ms"] = normalized["timeout_ms"]
         normalized.setdefault("timeline", [])
         return normalized
 
@@ -1001,11 +1140,23 @@ class CreatorService:
 
         self._capability_consumptions.update([], mutate)
         if result is not None:
+            self._append_capability_runtime_event(
+                result,
+                f"capability.{section}_metadata_observed",
+                f"Capability {section} metadata was registered and classified by runtime observability.",
+            )
             append_audit_event(
                 f"creator.capability_{section}_registered",
                 "operator",
-                {"id": consumption_id, "status": result["status"], "provider_status": result["provider_status"]},
-                risk="medium",
+                {
+                    "id": consumption_id,
+                    "status": result["status"],
+                    "provider_status": result["provider_status"],
+                    "failure_classification": result["failure_classification"],
+                    "risk_score": result["risk_score"],
+                    "governance_escalation": result["governance_escalation"],
+                },
+                risk=self._audit_risk_from_score(result["risk_score"]),
             )
         return result
 
@@ -1017,9 +1168,166 @@ class CreatorService:
             "autonomous_loops_allowed": False,
             "dangerous_calls_allowed": False,
             "external_api_call_performed": False,
+            "external_api_calls_enabled": False,
             "secret_storage_allowed": False,
             "provider_selection_allowed": False,
+            "provider_switching_allowed": False,
+            "auto_purchase_allowed": False,
+            "auditability": "required",
         }
+
+    def _append_capability_runtime_event(self, consumption: dict, event_type: str, detail: str) -> None:
+        event = self._make_capability_runtime_event(consumption, event_type, detail)
+        self._capability_runtime_events.update([], lambda events: events.append(event))
+
+    def _make_capability_runtime_event(self, consumption: dict, event_type: str, detail: str, event_id: str | None = None) -> dict:
+        record = self._normalize_capability_consumption(consumption)
+        severity = "info"
+        if record["status"] == "failed" or record["risk_score"] >= 70:
+            severity = "error"
+        elif record["status"] == "blocked" or record["risk_score"] >= 45:
+            severity = "warning"
+        timestamp = record["timestamp"] if event_id and event_id.startswith("derived-") else utc_now()
+        return {
+            "id": event_id or str(uuid.uuid4()),
+            "timestamp": timestamp,
+            "event_type": event_type,
+            "severity": severity,
+            "capability_request_id": record["capability_request_id"],
+            "consumption_id": record["id"],
+            "sender": record["sender"],
+            "reply_to": record["reply_to"],
+            "status": record["status"],
+            "provider_status": record["provider_status"],
+            "failure_classification": record["failure_classification"],
+            "risk_score": record["risk_score"],
+            "governance_escalation": record["governance_escalation"],
+            "external_api_called": record["external_api_called"],
+            "timeout_ms": record["timeout_ms"],
+            "replay_key": record["replay_metadata"]["replay_key"],
+            "detail": detail,
+        }
+
+    def _normalize_capability_runtime_event(self, event: dict) -> dict:
+        normalized = dict(event)
+        normalized.setdefault("id", str(uuid.uuid4()))
+        normalized.setdefault("timestamp", utc_now())
+        normalized.setdefault("event_type", "capability.runtime_event")
+        normalized.setdefault("severity", "info")
+        normalized.setdefault("capability_request_id", "")
+        normalized.setdefault("consumption_id", "")
+        normalized.setdefault("sender", "system")
+        normalized.setdefault("reply_to", "system")
+        normalized.setdefault("status", "unknown")
+        normalized.setdefault("provider_status", "not_bound")
+        normalized.setdefault("failure_classification", "unknown")
+        normalized.setdefault("risk_score", 0)
+        normalized.setdefault("governance_escalation", "none")
+        normalized.setdefault("external_api_called", False)
+        normalized.setdefault("timeout_ms", 30000)
+        normalized.setdefault("replay_key", f"replay:{normalized['consumption_id']}")
+        normalized.setdefault("detail", "Runtime event observed.")
+        return normalized
+
+    def _classify_capability_failure(self, record: dict) -> str:
+        reason = str(record.get("failure_reason") or "").lower()
+        if not reason and record.get("status") not in {"blocked", "failed"}:
+            return "none"
+        if "timeout" in reason:
+            return "timeout"
+        if "secret" in reason or "token" in reason:
+            return "secret_boundary"
+        if "provider_identity" in reason or "provider" in reason:
+            return "provider_boundary"
+        if reason in {"capability_not_approved", "approved_capability_metadata_missing", "missing_manual_consumption_approval"}:
+            return "approval"
+        if "governance" in reason or record.get("status") == "blocked":
+            return "governance"
+        if record.get("status") == "failed":
+            return "metadata"
+        return "unknown"
+
+    def _capability_risk_score(self, record: dict) -> int:
+        score = 10
+        if record.get("status") == "completed":
+            score += 5
+        if record.get("status") == "blocked":
+            score += 30
+        if record.get("status") == "failed":
+            score += 55
+        if record.get("manual_approval") is not True:
+            score += 15
+        if record.get("external_api_called"):
+            score += 80
+        failure_class = self._classify_capability_failure(record)
+        score += {
+            "approval": 15,
+            "governance": 20,
+            "timeout": 25,
+            "secret_boundary": 35,
+            "provider_boundary": 35,
+            "metadata": 25,
+            "unknown": 10,
+            "none": 0,
+        }.get(failure_class, 10)
+        if record.get("provider_status") == "failed_metadata_registered":
+            score += 20
+        amount = record.get("cost_metadata", {}).get("amount")
+        if isinstance(amount, int | float):
+            score += 8 if float(amount) > 0 else 0
+            score += 12 if float(amount) >= 10 else 0
+        return min(score, 100)
+
+    def _capability_governance_escalation(self, record: dict) -> str:
+        risk_score = self._capability_risk_score(record)
+        if risk_score < 45 and record.get("status") == "completed":
+            return "none"
+        if risk_score >= 70:
+            reply_to = record.get("reply_to", "system")
+            if reply_to == "ceo":
+                return "escalated_to_ceo"
+            if reply_to == "cerebro":
+                return "escalated_to_cerebro"
+            return "escalated_to_operator"
+        if record.get("status") in {"blocked", "failed"} or risk_score >= 45:
+            return "review_required"
+        return "none"
+
+    def _capability_replay_metadata(self, record: dict) -> dict:
+        timeline = record.get("timeline", [])
+        return {
+            "replay_key": f"replay:{record.get('id', '')}",
+            "mode": "metadata_only_replay",
+            "capability_request_id": record.get("capability_request_id", ""),
+            "consumption_id": record.get("id", ""),
+            "sender": record.get("sender", "system"),
+            "reply_to": record.get("reply_to", "system"),
+            "task": record.get("task", "Capability consumption"),
+            "status": record.get("status", "blocked"),
+            "manual_approval": record.get("manual_approval") is True,
+            "timeout_ms": record.get("timeout_ms", 30000),
+            "external_api_called": bool(record.get("external_api_called", False)),
+            "failure_classification": self._classify_capability_failure(record),
+            "risk_score": self._capability_risk_score(record),
+            "governance_escalation": self._capability_governance_escalation(record),
+            "timeline_events": [event.get("event", "unknown") for event in timeline],
+            "metadata_sections": {
+                "usage": sorted(record.get("usage_metadata", {}).keys()),
+                "cost": sorted(record.get("cost_metadata", {}).keys()),
+                "provider_response": sorted(record.get("provider_response_metadata", {}).keys()),
+                "result": sorted(record.get("result_metadata", {}).keys()),
+            },
+            "blocked_actions": ["autonomous_provider_call", "autonomous_loop", "provider_switching", "auto_purchase", "secret_storage"],
+        }
+
+    def _audit_risk_from_score(self, score: int) -> str:
+        if score >= 80:
+            return "critical"
+        if score >= 60:
+            return "high"
+        if score >= 35:
+            return "medium"
+        return "low"
 
     def _default_cost_metadata(self) -> dict:
         return {

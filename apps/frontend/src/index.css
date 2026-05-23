@@ -324,6 +324,10 @@ a {
   grid-column: span 2;
 }
 
+.runtime-observability-card {
+  grid-column: span 3;
+}
+
 .capability-form {
   display: grid;
   grid-template-columns: minmax(160px, 0.8fr) minmax(0, 1.2fr);
@@ -446,6 +450,71 @@ a {
 
 .usage-timeline {
   margin-top: 16px;
+}
+
+.runtime-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.runtime-dashboard-grid div,
+.observability-columns div,
+.replay-metadata-panel {
+  border-radius: 18px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  background:
+    linear-gradient(180deg, rgba(182, 87, 41, 0.08), rgba(255, 255, 255, 0.032)),
+    rgba(255, 255, 255, 0.035);
+}
+
+.runtime-dashboard-grid span,
+.observability-columns strong {
+  color: #d8a56d;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.runtime-dashboard-grid strong {
+  display: block;
+  margin-top: 8px;
+  color: #fff3e5;
+  font-size: 20px;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.runtime-dashboard-grid small {
+  display: block;
+  margin-top: 8px;
+  color: #aaa099;
+  font-weight: 760;
+  overflow-wrap: anywhere;
+}
+
+.observability-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.observability-columns span {
+  display: block;
+  margin-top: 8px;
+  color: #e9d8c5;
+  font-size: 13px;
+  font-weight: 760;
+  overflow-wrap: anywhere;
+}
+
+.runtime-event-stream,
+.replay-metadata-panel {
+  margin-top: 14px;
 }
 
 .output-toolbar {
@@ -1129,11 +1198,14 @@ a {
   .result-columns,
   .capability-card,
   .consumption-card,
+  .runtime-observability-card,
   .capability-form,
   .capability-list button,
   .approved-capability-list button,
   .consumption-list button,
-  .consumption-status {
+  .consumption-status,
+  .runtime-dashboard-grid,
+  .observability-columns {
     grid-template-columns: 1fr;
     grid-column: auto;
   }
