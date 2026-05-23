@@ -3,15 +3,24 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import traceback
 
+print("IMPORT_STAGE_MAIN_MODULE_BEGIN", flush=True)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+print("IMPORT_STAGE_FASTAPI_OK", flush=True)
+
 from app.api.routes import ai_pipeline, audit, auth, ecosystem, factory, governance, health, notifications, providers, runtime, telemetry, validation, workflows
+
+print("IMPORT_STAGE_ROUTES_OK", flush=True)
+
 from app.core.audit import append_audit_event
 from app.core.config import settings
 from app.core.logging import configure_logging, logger
 from app.db.migrations import run_migrations_if_enabled
 from app.db.session import database_status, dispose_engine
+
+print("IMPORT_STAGE_CORE_DB_OK", flush=True)
 
 
 @asynccontextmanager
@@ -64,6 +73,8 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="FORJA Backend", version=settings.app_version, lifespan=lifespan)
 
+print("IMPORT_STAGE_FASTAPI_APP_CREATED", flush=True)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -85,3 +96,5 @@ app.include_router(ecosystem.router)
 app.include_router(workflows.router)
 app.include_router(audit.router)
 app.include_router(validation.router)
+
+print("IMPORT_STAGE_MAIN_MODULE_OK", flush=True)
