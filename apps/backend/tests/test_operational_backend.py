@@ -81,3 +81,21 @@ def test_ai_pipeline_records_but_blocks_provider_execution() -> None:
     payload = response.json()
     assert payload["status"] == "blocked_provider_disabled"
     assert payload["provider_id"] == "ai.local-disabled"
+
+
+def test_creator_console_blocks_without_provider_execution() -> None:
+    response = client.post(
+        "/creator/commands",
+        json={"sender": "cerebro", "command": "Build a controlled operator module", "details": "No external provider, no writes."},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sender"] == "cerebro"
+    assert payload["reply_to_sender"] == "cerebro"
+    assert payload["status"] == "blocked"
+    assert payload["response"] == "provider_disabled_by_governance"
+    assert payload["governance"]["provider_status"] == "disabled"
+
+    state = client.get("/creator/console")
+    assert state.status_code == 200
+    assert state.json()["provider_state"] == "provider_disabled_by_governance"

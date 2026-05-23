@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { API_URL, fetchJson, HealthResponse, RuntimeStatus } from "./lib/api";
+import { API_URL, CreatorCommand, CreatorConsoleState, CreatorDecision, CreatorSender, fetchJson, HealthResponse, postJson, RuntimeStatus } from "./lib/api";
 
 type LoadState<T> = {
   data: T | null;
@@ -42,6 +42,10 @@ function useRuntimeData(refreshKey: number) {
   const health = useLoad<HealthResponse>(() => fetchJson("/health"), [refreshKey]);
   const runtime = useLoad<RuntimeStatus>(() => fetchJson("/runtime/status"), [refreshKey]);
   return { health, runtime };
+}
+
+function useCreatorConsole(refreshKey: number) {
+  return useLoad<CreatorConsoleState>(() => fetchJson("/creator/console"), [refreshKey]);
 }
 
 function toneForStatus(status?: string | boolean): Tone {
@@ -147,6 +151,181 @@ function ErrorPanel({ label, error }: { label: string; error: string }) {
   );
 }
 
+function MiniSelect({ value, onChange }: { value: CreatorSender; onChange: (value: CreatorSender) => void }) {
+  return (
+    <div className="sender-switch" aria-label="Command sender">
+      {(["user", "cerebro"] as CreatorSender[]).map((sender) => (
+        <button key={sender} type="button" className={value === sender ? "active" : ""} onClick={() => onChange(sender)}>
+          sender={sender}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CreatorConsole({
+  state,
+  selected,
+  sender,
+  command,
+  details,
+  busy,
+  message,
+  onSender,
+  onCommand,
+  onDetails,
+  onSubmit,
+  onSelect,
+  onDecision,
+}: {
+  state: LoadState<CreatorConsoleState>;
+  selected: CreatorCommand | null;
+  sender: CreatorSender;
+  command: string;
+  details: string;
+  busy: boolean;
+  message: string | null;
+  onSender: (value: CreatorSender) => void;
+  onCommand: (value: string) => void;
+  onDetails: (value: string) => void;
+  onSubmit: () => void;
+  onSelect: (value: CreatorCommand) => void;
+  onDecision: (value: CreatorDecision) => void;
+}) {
+  const commands = state.data?.commands ?? [];
+  const active = selected ?? commands[commands.length - 1] ?? null;
+  const pipeline = active?.pipeline ?? (state.data?.command_statuses ?? []).map((status) => ({ status, label: status, detail: "Awaiting command input." }));
+  const audit = state.data?.audit_stream ?? [];
+  return (
+    <section className="creator-console" id="creator-console">
+      <div className="section-heading">
+        <span>FORJA Command Console</span>
+        <h2>Controlled construction cabin</h2>
+      </div>
+      <div className="creator-layout">
+        <section className="command-console-panel">
+          <div className="card-topline">
+            <span>Command input</span>
+            <StatusBadge value={state.data?.provider_state ?? "checking"} tone="amber" />
+          </div>
+          <MiniSelect value={sender} onChange={onSender} />
+          <input value={command} onChange={(event) => onCommand(event.target.value)} placeholder="Build, inspect, prepare or route a controlled request" />
+          <textarea value={details} onChange={(event) => onDetails(event.target.value)} placeholder="Advanced context, constraints, target modules, risk notes" />
+          <div className="quick-commands">
+            {["Prepare dashboard module", "Route from cerebro", "Inspect governance blockers"].map((item) => (
+              <button key={item} type="button" onClick={() => onCommand(item)}>
+                {item}
+              </button>
+            ))}
+          </div>
+          <ActionButton onClick={onSubmit} loading={busy}>
+            Submit controlled command
+          </ActionButton>
+          {message ? <p className="console-message">{message}</p> : null}
+        </section>
+
+        <section className="pipeline-panel">
+          <div className="card-topline">
+            <span>Request pipeline</span>
+            <StatusBadge value={active?.status ?? "idle"} tone={toneForStatus(active?.status ?? "loading")} />
+          </div>
+          <div className="pipeline-rail">
+            {pipeline.map((step) => (
+              <div key={`${step.status}-${step.label}`} className={active?.status === step.status ? "current" : ""}>
+                <span>{step.status}</span>
+                <strong>{step.label}</strong>
+                <p>{step.detail}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="creator-grid">
+        <section className="creator-card">
+          <div className="card-topline">
+            <span>Multi-agent channels</span>
+            <StatusBadge value={active ? `reply=${active.reply_to_sender}` : "waiting"} />
+          </div>
+          <div className="channel-list">
+            {commands.length ? commands.slice(-4).reverse().map((item) => (
+              <button key={item.id} type="button" onClick={() => onSelect(item)} className={active?.id === item.id ? "active" : ""}>
+                <strong>sender={item.sender}</strong>
+                <span>{item.command}</span>
+                <small>{item.response}</small>
+              </button>
+            )) : <p>No creator commands yet.</p>}
+          </div>
+        </section>
+
+        <section className="creator-card">
+          <div className="card-topline">
+            <span>Governance panel</span>
+            <StatusBadge value={active?.governance.risk_level ?? "not assessed"} tone="amber" />
+          </div>
+          <p>{active?.governance.blocked_reason ?? "No command selected."}</p>
+          <div className="permission-list">
+            {(active?.governance.required_permissions ?? ["human_approval", "allow_write=true", "provider_enabled"]).map((permission) => <span key={permission}>{permission}</span>)}
+          </div>
+        </section>
+
+        <section className="creator-card">
+          <div className="card-topline">
+            <span>Approval center</span>
+            <StatusBadge value="controlled" tone="amber" />
+          </div>
+          <div className="approval-actions">
+            <ActionButton variant="ghost" onClick={() => onDecision("approve")}>approve</ActionButton>
+            <ActionButton variant="ghost" onClick={() => onDecision("reject")}>reject</ActionButton>
+            <ActionButton variant="ghost" onClick={() => onDecision("hold")}>hold</ActionButton>
+          </div>
+          <p>Approval intent is recorded, but execution remains governed while provider execution is disabled.</p>
+        </section>
+
+        <section className="creator-card timeline-card">
+          <div className="card-topline">
+            <span>Execution timeline</span>
+            <StatusBadge value={active ? active.timeline.length : 0} />
+          </div>
+          {(active?.timeline ?? []).map((event) => (
+            <div key={`${event.timestamp}-${event.event}`} className="timeline-row">
+              <strong>{event.event}</strong>
+              <span>{event.detail}</span>
+            </div>
+          ))}
+        </section>
+
+        <section className="creator-card">
+          <div className="card-topline">
+            <span>Output panel</span>
+            <StatusBadge value={active?.outputs.length ?? 0} />
+          </div>
+          {(active?.outputs ?? []).map((output) => (
+            <div key={`${output.kind}-${output.name}`} className="output-row">
+              <span>{output.kind}</span>
+              <strong>{output.name}</strong>
+              <StatusBadge value={output.status} tone={toneForStatus(output.status)} />
+            </div>
+          ))}
+        </section>
+
+        <section className="creator-card audit-card">
+          <div className="card-topline">
+            <span>Audit stream</span>
+            <StatusBadge value={audit.length} />
+          </div>
+          {audit.slice(-6).reverse().map((event) => (
+            <div key={String(event.id)} className="audit-row">
+              <strong>{String(event.event_type ?? "audit.event")}</strong>
+              <span>{String(event.actor ?? "system")} - {String(event.risk ?? "low")}</span>
+            </div>
+          ))}
+        </section>
+      </div>
+    </section>
+  );
+}
+
 function DetailModal({ panel, onClose }: { panel: DetailPanel; onClose: () => void }) {
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
@@ -177,9 +356,17 @@ function DetailModal({ panel, onClose }: { panel: DetailPanel; onClose: () => vo
 
 export default function App() {
   const [refreshKey, setRefreshKey] = useState(0);
+  const [creatorRefreshKey, setCreatorRefreshKey] = useState(0);
   const [lastRefresh, setLastRefresh] = useState("Initial sync");
   const [panel, setPanel] = useState<DetailPanel | null>(null);
+  const [creatorSender, setCreatorSender] = useState<CreatorSender>("user");
+  const [creatorCommand, setCreatorCommand] = useState("Prepare governed module");
+  const [creatorDetails, setCreatorDetails] = useState("Keep zero-write policy active. Do not call external AI providers.");
+  const [creatorBusy, setCreatorBusy] = useState(false);
+  const [creatorMessage, setCreatorMessage] = useState<string | null>(null);
+  const [selectedCreatorCommand, setSelectedCreatorCommand] = useState<CreatorCommand | null>(null);
   const { health, runtime } = useRuntimeData(refreshKey);
+  const creatorState = useCreatorConsole(creatorRefreshKey);
 
   const modules = useMemo(() => Object.entries(health.data?.modules ?? {}), [health.data]);
   const providers = runtime.data?.providers ?? [];
@@ -203,9 +390,52 @@ export default function App() {
       rows: [["Action", "Read-only cloud console"], ["Decision", "Blocked by governance"], ...rows],
     });
   };
+  const submitCreatorCommand = () => {
+    setCreatorBusy(true);
+    setCreatorMessage(null);
+    postJson<CreatorCommand>("/creator/commands", { sender: creatorSender, command: creatorCommand, details: creatorDetails })
+      .then((record) => {
+        setSelectedCreatorCommand(record);
+        setCreatorMessage(`FORJA replied to sender=${record.reply_to_sender}: ${record.response}`);
+        setCreatorRefreshKey((key) => key + 1);
+      })
+      .catch((error: Error) => setCreatorMessage(error.message))
+      .finally(() => setCreatorBusy(false));
+  };
+  const decideCreatorCommand = (decision: CreatorDecision) => {
+    if (!selectedCreatorCommand) {
+      setCreatorMessage("Select or submit a command before recording approval intent.");
+      return;
+    }
+    setCreatorBusy(true);
+    postJson<CreatorCommand>(`/creator/commands/${selectedCreatorCommand.id}/decision`, { decision, reason: "Operator action from Creator Console" })
+      .then((record) => {
+        setSelectedCreatorCommand(record);
+        setCreatorMessage(`${decision} recorded. Final status: ${record.status}.`);
+        setCreatorRefreshKey((key) => key + 1);
+      })
+      .catch((error: Error) => setCreatorMessage(error.message))
+      .finally(() => setCreatorBusy(false));
+  };
 
   return (
     <main className="forge-shell">
+      <CreatorConsole
+        state={creatorState}
+        selected={selectedCreatorCommand}
+        sender={creatorSender}
+        command={creatorCommand}
+        details={creatorDetails}
+        busy={creatorBusy}
+        message={creatorMessage}
+        onSender={setCreatorSender}
+        onCommand={setCreatorCommand}
+        onDetails={setCreatorDetails}
+        onSubmit={submitCreatorCommand}
+        onSelect={setSelectedCreatorCommand}
+        onDecision={decideCreatorCommand}
+      />
+
       <section className="hero">
         <div className="hero-copy">
           <div className="brand-row">
