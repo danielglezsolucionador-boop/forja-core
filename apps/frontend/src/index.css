@@ -289,6 +289,111 @@ a {
   align-items: center;
 }
 
+.output-manager-card {
+  grid-column: span 2;
+}
+
+.output-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.artifact-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.artifact-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(0, 0.8fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 68px;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 18px;
+  padding: 12px;
+  color: #f7eadb;
+  background: rgba(255, 255, 255, 0.035);
+  cursor: pointer;
+}
+
+.artifact-list button.active {
+  border-color: rgba(239, 171, 99, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 221, 181, 0.1), 0 14px 30px rgba(154, 64, 28, 0.16);
+}
+
+.artifact-list span,
+.artifact-list small,
+.structure-view > strong,
+.result-columns strong {
+  color: #d8a56d;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.artifact-list strong,
+.artifact-list span,
+.artifact-list small {
+  overflow-wrap: anywhere;
+}
+
+.result-viewer {
+  margin-top: 16px;
+  border-radius: 22px;
+  padding: 16px;
+  border: 1px solid rgba(211, 147, 74, 0.18);
+  background:
+    linear-gradient(135deg, rgba(131, 51, 27, 0.2), transparent 42%),
+    rgba(255, 255, 255, 0.035);
+}
+
+.result-viewer h3 {
+  margin: 22px 0 0;
+  color: #fff3e5;
+  font-size: 24px;
+  line-height: 1.05;
+}
+
+.result-viewer p {
+  margin: 12px 0 0;
+  color: #cfc3b6;
+}
+
+.result-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.result-columns div,
+.structure-view {
+  border-radius: 18px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.result-columns span,
+.structure-view span {
+  display: block;
+  margin-top: 8px;
+  color: #e9d8c5;
+  font-size: 13px;
+  font-weight: 760;
+  overflow-wrap: anywhere;
+}
+
+.structure-view {
+  margin-top: 10px;
+}
+
 .timeline-card,
 .audit-card {
   max-height: 430px;
@@ -857,6 +962,15 @@ a {
 
   .hero h1 {
     font-size: 64px;
+  }
+
+  .output-manager-card {
+    grid-column: auto;
+  }
+
+  .artifact-list button,
+  .result-columns {
+    grid-template-columns: 1fr;
   }
 }
 

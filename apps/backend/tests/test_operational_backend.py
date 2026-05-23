@@ -131,4 +131,60 @@ def test_creator_execution_requires_approval_then_completes_metadata_only() -> N
     assert payload["status"] == "completed"
     assert payload["response"] == "metadata_only_completed_for_user"
     assert any(item["event"] == "execution.completed" for item in payload["timeline"])
-    assert any(item["kind"] == "metadata" and item["status"] == "created" for item in payload["outputs"])
+    assert any(item["output_type"] == "workflow_plan" and item["mode"] == "metadata_only_output" for item in payload["outputs"])
+
+
+def test_creator_output_manager_lists_downloads_and_associates_metadata() -> None:
+    response = client.post(
+        "/creator/commands",
+        json={"sender": "seo", "command": "Prepare API blueprint", "details": "Metadata only. No external AI."},
+    )
+    assert response.status_code == 200
+    created = response.json()
+    assert created["sender"] == "seo"
+    assert created["status"] == "awaiting_approval"
+
+    approved = client.post(
+        f"/creator/commands/{created['id']}/decision",
+        json={"decision": "approve", "reason": "Output manager validation."},
+    )
+    assert approved.status_code == 200
+
+    executed = client.post(f"/creator/commands/{created['id']}/execute", json={"metadata_only": True})
+    assert executed.status_code == 200
+    payload = executed.json()
+    assert payload["status"] == "completed"
+    assert any(output["output_type"] == "api_blueprint" for output in payload["outputs"])
+    assert all(output["mode"] == "metadata_only_output" for output in payload["outputs"])
+
+    outputs = client.get(f"/creator/commands/{created['id']}/outputs")
+    assert outputs.status_code == 200
+    command_outputs = outputs.json()
+    output_id = next(output["id"] for output in command_outputs if output["output_type"] == "api_blueprint")
+
+    listed = client.get("/creator/outputs", params={"sender": "seo"})
+    assert listed.status_code == 200
+    assert any(output["id"] == output_id for output in listed.json())
+
+    detail = client.get(f"/creator/outputs/{output_id}")
+    assert detail.status_code == 200
+    assert detail.json()["summary"].startswith("metadata_only_output")
+    assert "source_code" in detail.json()["not_produced"]
+
+    metadata = client.get(f"/creator/outputs/{output_id}/metadata")
+    assert metadata.status_code == 200
+    assert "attachment" in metadata.headers["content-disposition"]
+    assert metadata.json()["id"] == output_id
+
+    associated = client.post(
+        f"/creator/commands/{created['id']}/outputs",
+        json={
+            "output_type": "execution_summary",
+            "title": "Operator Metadata Note",
+            "summary": "Associated during output manager validation.",
+            "content": {"validation": "artifact_registry"},
+        },
+    )
+    assert associated.status_code == 200
+    assert associated.json()["mode"] == "metadata_only_output"
+    assert associated.json()["request_id"] == created["id"]

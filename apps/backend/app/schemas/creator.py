@@ -1,12 +1,22 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
-CreatorSender = Literal["user", "cerebro"]
+CreatorSender = Literal["user", "cerebro", "seo", "system"]
 CreatorRequestType = Literal["app", "api", "module", "workflow", "document", "integration"]
+CreatorOutputType = Literal[
+    "proposed_app_structure",
+    "api_blueprint",
+    "module_plan",
+    "workflow_plan",
+    "document_blueprint",
+    "integration_plan",
+    "blocked_action_report",
+    "execution_summary",
+]
 CreatorPipelineStatus = Literal[
     "received",
     "governance_check",
@@ -33,6 +43,14 @@ class CreatorDecisionIn(BaseModel):
 
 class CreatorExecuteIn(BaseModel):
     metadata_only: bool = True
+
+
+class CreatorOutputAssociateIn(BaseModel):
+    output_type: CreatorOutputType = "execution_summary"
+    title: str = Field(default="Associated metadata output", max_length=140)
+    summary: str = Field(default="metadata_only_output", max_length=1200)
+    status: str = Field(default="associated_metadata_only", max_length=80)
+    content: dict[str, Any] = Field(default_factory=dict)
 
 
 class CreatorPipelineStep(BaseModel):
@@ -62,9 +80,22 @@ class CreatorExecutionLog(BaseModel):
 
 
 class CreatorOutput(BaseModel):
-    kind: Literal["file", "module", "result", "structure", "metadata", "log"]
+    id: str
+    request_id: str
+    sender: CreatorSender
+    output_type: CreatorOutputType
+    kind: Literal["file", "module", "result", "structure", "metadata", "log", "report", "blueprint", "plan", "summary"]
     name: str
+    title: str
     status: str
+    mode: Literal["metadata_only_output"]
+    summary: str
+    produced: list[str]
+    not_produced: list[str]
+    blocked: list[str]
+    content: dict[str, Any]
+    downloadable: bool
+    created_at: str
 
 
 class CreatorCommandRecord(BaseModel):
@@ -90,4 +121,5 @@ class CreatorConsoleState(BaseModel):
     provider_state: str
     command_statuses: list[CreatorPipelineStatus]
     commands: list[CreatorCommandRecord]
+    outputs: list[CreatorOutput]
     audit_stream: list[dict]

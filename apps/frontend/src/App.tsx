@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { API_URL, CreatorCommand, CreatorConsoleState, CreatorDecision, CreatorSender, fetchJson, HealthResponse, postJson, RuntimeStatus } from "./lib/api";
+import { API_URL, CreatorCommand, CreatorConsoleState, CreatorDecision, CreatorOutput, CreatorSender, fetchJson, HealthResponse, postJson, RuntimeStatus } from "./lib/api";
 
 type LoadState<T> = {
   data: T | null;
@@ -61,6 +61,12 @@ function toneForStatus(status?: string | boolean): Tone {
 function display(value: unknown, fallback = "Not reported") {
   if (value === undefined || value === null || value === "") return fallback;
   return String(value);
+}
+
+function contentList(content: Record<string, unknown>, key: string): string[] {
+  const value = content[key];
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item));
 }
 
 function StatusBadge({ value, tone }: { value: string | boolean | number; tone?: Tone }) {
@@ -154,7 +160,7 @@ function ErrorPanel({ label, error }: { label: string; error: string }) {
 function MiniSelect({ value, onChange }: { value: CreatorSender; onChange: (value: CreatorSender) => void }) {
   return (
     <div className="sender-switch" aria-label="Command sender">
-      {(["user", "cerebro"] as CreatorSender[]).map((sender) => (
+      {(["user", "cerebro", "seo", "system"] as CreatorSender[]).map((sender) => (
         <button key={sender} type="button" className={value === sender ? "active" : ""} onClick={() => onChange(sender)}>
           sender={sender}
         </button>
@@ -176,6 +182,9 @@ function CreatorConsole({
   onDetails,
   onSubmit,
   onSelect,
+  selectedOutput,
+  onSelectOutput,
+  onDownloadOutput,
   onDecision,
   onExecute,
 }: {
@@ -186,11 +195,14 @@ function CreatorConsole({
   details: string;
   busy: boolean;
   message: string | null;
+  selectedOutput: CreatorOutput | null;
   onSender: (value: CreatorSender) => void;
   onCommand: (value: string) => void;
   onDetails: (value: string) => void;
   onSubmit: () => void;
   onSelect: (value: CreatorCommand) => void;
+  onSelectOutput: (value: CreatorOutput) => void;
+  onDownloadOutput: (value: CreatorOutput) => void;
   onDecision: (value: CreatorDecision) => void;
   onExecute: () => void;
 }) {
@@ -198,6 +210,10 @@ function CreatorConsole({
   const active = selected ?? commands[commands.length - 1] ?? null;
   const pipeline = active?.pipeline ?? (state.data?.command_statuses ?? []).map((status) => ({ status, label: status, detail: "Awaiting command input." }));
   const audit = state.data?.audit_stream ?? [];
+  const globalOutputs = state.data?.outputs ?? [];
+  const activeOutputs = active?.outputs ?? [];
+  const viewerOutput = selectedOutput ?? activeOutputs[activeOutputs.length - 1] ?? globalOutputs[globalOutputs.length - 1] ?? null;
+  const proposedStructure = viewerOutput ? contentList(viewerOutput.content, "proposed_structure") : [];
   return (
     <section className="creator-console" id="creator-console">
       <div className="section-heading">
@@ -316,18 +332,56 @@ function CreatorConsole({
           ))}
         </section>
 
-        <section className="creator-card">
+        <section className="creator-card output-manager-card">
           <div className="card-topline">
-            <span>Output panel</span>
-            <StatusBadge value={active?.outputs.length ?? 0} />
+            <span>Output manager</span>
+            <StatusBadge value={activeOutputs.length || globalOutputs.length} />
           </div>
-          {(active?.outputs ?? []).map((output) => (
-            <div key={`${output.kind}-${output.name}`} className="output-row">
-              <span>{output.kind}</span>
-              <strong>{output.name}</strong>
-              <StatusBadge value={output.status} tone={toneForStatus(output.status)} />
+          <div className="output-toolbar">
+            <ActionButton variant="ghost" onClick={() => viewerOutput && onSelectOutput(viewerOutput)}>View execution result</ActionButton>
+            <ActionButton variant="ghost" onClick={() => viewerOutput && onDownloadOutput(viewerOutput)}>Download metadata</ActionButton>
+            <ActionButton variant="ghost" onClick={() => viewerOutput && onSelectOutput(viewerOutput)}>View blocked reason</ActionButton>
+          </div>
+          <div className="artifact-list">
+            {(activeOutputs.length ? activeOutputs : globalOutputs.slice(-5)).map((output) => (
+              <button key={output.id} type="button" onClick={() => onSelectOutput(output)} className={viewerOutput?.id === output.id ? "active" : ""}>
+                <span>{output.output_type}</span>
+                <strong>{output.title}</strong>
+                <small>{output.mode}</small>
+                <StatusBadge value={output.status} tone={toneForStatus(output.status)} />
+              </button>
+            ))}
+          </div>
+          {viewerOutput ? (
+            <div className="result-viewer">
+              <div className="card-topline">
+                <span>Result viewer</span>
+                <StatusBadge value={viewerOutput.sender} tone="steel" />
+              </div>
+              <h3>{viewerOutput.title}</h3>
+              <p>{viewerOutput.summary}</p>
+              <div className="result-columns">
+                <div>
+                  <strong>Produced</strong>
+                  {(viewerOutput.produced.length ? viewerOutput.produced : ["none"]).map((item) => <span key={item}>{item}</span>)}
+                </div>
+                <div>
+                  <strong>Not produced</strong>
+                  {(viewerOutput.not_produced.length ? viewerOutput.not_produced : ["source_code"]).map((item) => <span key={item}>{item}</span>)}
+                </div>
+                <div>
+                  <strong>Governance blocks</strong>
+                  {(viewerOutput.blocked.length ? viewerOutput.blocked : ["none"]).map((item) => <span key={item}>{item}</span>)}
+                </div>
+              </div>
+              {proposedStructure.length ? (
+                <div className="structure-view">
+                  <strong>Proposed structure</strong>
+                  {proposedStructure.map((item) => <span key={item}>{item}</span>)}
+                </div>
+              ) : null}
             </div>
-          ))}
+          ) : <p>No artifacts registered yet.</p>}
         </section>
 
         <section className="creator-card audit-card">
@@ -386,6 +440,7 @@ export default function App() {
   const [creatorBusy, setCreatorBusy] = useState(false);
   const [creatorMessage, setCreatorMessage] = useState<string | null>(null);
   const [selectedCreatorCommand, setSelectedCreatorCommand] = useState<CreatorCommand | null>(null);
+  const [selectedCreatorOutput, setSelectedCreatorOutput] = useState<CreatorOutput | null>(null);
   const { health, runtime } = useRuntimeData(refreshKey);
   const creatorState = useCreatorConsole(creatorRefreshKey);
 
@@ -411,12 +466,20 @@ export default function App() {
       rows: [["Action", "Read-only cloud console"], ["Decision", "Blocked by governance"], ...rows],
     });
   };
+  const selectLatestOutput = (record: CreatorCommand) => {
+    setSelectedCreatorOutput(record.outputs[record.outputs.length - 1] ?? null);
+  };
+  const downloadCreatorOutput = (output: CreatorOutput) => {
+    window.open(`${API_URL}/creator/outputs/${output.id}/metadata`, "_blank", "noreferrer");
+    setCreatorMessage(`Metadata download requested for ${output.output_type}.`);
+  };
   const submitCreatorCommand = () => {
     setCreatorBusy(true);
     setCreatorMessage(null);
     postJson<CreatorCommand>("/creator/commands", { sender: creatorSender, command: creatorCommand, details: creatorDetails })
       .then((record) => {
         setSelectedCreatorCommand(record);
+        selectLatestOutput(record);
         setCreatorMessage(`FORJA replied to sender=${record.reply_to_sender}: ${record.response}`);
         setCreatorRefreshKey((key) => key + 1);
       })
@@ -432,6 +495,7 @@ export default function App() {
     postJson<CreatorCommand>(`/creator/commands/${selectedCreatorCommand.id}/decision`, { decision, reason: "Operator action from Creator Console" })
       .then((record) => {
         setSelectedCreatorCommand(record);
+        selectLatestOutput(record);
         setCreatorMessage(`${decision} recorded. Final status: ${record.status}.`);
         setCreatorRefreshKey((key) => key + 1);
       })
@@ -447,6 +511,7 @@ export default function App() {
     postJson<CreatorCommand>(`/creator/commands/${selectedCreatorCommand.id}/execute`, { metadata_only: true })
       .then((record) => {
         setSelectedCreatorCommand(record);
+        selectLatestOutput(record);
         setCreatorMessage(`Execution engine replied to sender=${record.reply_to_sender}: ${record.response}`);
         setCreatorRefreshKey((key) => key + 1);
       })
@@ -464,11 +529,17 @@ export default function App() {
         details={creatorDetails}
         busy={creatorBusy}
         message={creatorMessage}
+        selectedOutput={selectedCreatorOutput}
         onSender={setCreatorSender}
         onCommand={setCreatorCommand}
         onDetails={setCreatorDetails}
         onSubmit={submitCreatorCommand}
-        onSelect={setSelectedCreatorCommand}
+        onSelect={(record) => {
+          setSelectedCreatorCommand(record);
+          selectLatestOutput(record);
+        }}
+        onSelectOutput={setSelectedCreatorOutput}
+        onDownloadOutput={downloadCreatorOutput}
         onDecision={decideCreatorCommand}
         onExecute={executeCreatorCommand}
       />
