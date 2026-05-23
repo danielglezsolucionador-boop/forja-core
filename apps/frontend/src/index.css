@@ -775,12 +775,19 @@ a {
 .status-badge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  min-width: 0;
   min-height: 34px;
   border-radius: 999px;
   padding: 0 12px;
   font-size: 12px;
   font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .api-chip {
