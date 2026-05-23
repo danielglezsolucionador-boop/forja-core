@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { API_URL, CreatorCommand, CreatorConsoleState, CreatorDecision, CreatorOutput, CreatorSender, fetchJson, HealthResponse, postJson, RuntimeStatus } from "./lib/api";
+import {
+  API_URL,
+  CapabilityKind,
+  CapabilityRequest,
+  CreatorCommand,
+  CreatorConsoleState,
+  CreatorDecision,
+  CreatorOutput,
+  CreatorSender,
+  fetchJson,
+  HealthResponse,
+  postJson,
+  RuntimeStatus,
+} from "./lib/api";
 
 type LoadState<T> = {
   data: T | null;
@@ -52,9 +65,9 @@ function toneForStatus(status?: string | boolean): Tone {
   if (status === true) return "green";
   if (status === false) return "amber";
   const value = String(status ?? "").toLowerCase();
-  if (["ok", "active", "available", "true", "connection_ok"].includes(value)) return "green";
-  if (["degraded", "disabled", "not_started_by_design", "blocked_provider_disabled", "local_queue", "loading"].includes(value)) return "amber";
-  if (["error", "failed", "critical", "unavailable", "false"].includes(value)) return "red";
+  if (["ok", "active", "available", "approved", "true", "connection_ok"].includes(value)) return "green";
+  if (["degraded", "disabled", "pending", "not_started_by_design", "blocked_provider_disabled", "local_queue", "loading"].includes(value)) return "amber";
+  if (["error", "failed", "critical", "rejected", "unavailable", "false"].includes(value)) return "red";
   return "steel";
 }
 
@@ -185,6 +198,17 @@ function CreatorConsole({
   selectedOutput,
   onSelectOutput,
   onDownloadOutput,
+  capabilityKind,
+  capabilityObjective,
+  capabilityExplanation,
+  selectedCapability,
+  onCapabilityKind,
+  onCapabilityObjective,
+  onCapabilityExplanation,
+  onCapabilitySubmit,
+  onSelectCapability,
+  onCapabilityDecision,
+  onAttachCapabilityMetadata,
   onDecision,
   onExecute,
 }: {
@@ -196,6 +220,10 @@ function CreatorConsole({
   busy: boolean;
   message: string | null;
   selectedOutput: CreatorOutput | null;
+  capabilityKind: CapabilityKind;
+  capabilityObjective: string;
+  capabilityExplanation: string;
+  selectedCapability: CapabilityRequest | null;
   onSender: (value: CreatorSender) => void;
   onCommand: (value: string) => void;
   onDetails: (value: string) => void;
@@ -203,6 +231,13 @@ function CreatorConsole({
   onSelect: (value: CreatorCommand) => void;
   onSelectOutput: (value: CreatorOutput) => void;
   onDownloadOutput: (value: CreatorOutput) => void;
+  onCapabilityKind: (value: CapabilityKind) => void;
+  onCapabilityObjective: (value: string) => void;
+  onCapabilityExplanation: (value: string) => void;
+  onCapabilitySubmit: () => void;
+  onSelectCapability: (value: CapabilityRequest) => void;
+  onCapabilityDecision: (value: "approve" | "reject") => void;
+  onAttachCapabilityMetadata: () => void;
   onDecision: (value: CreatorDecision) => void;
   onExecute: () => void;
 }) {
@@ -214,6 +249,8 @@ function CreatorConsole({
   const activeOutputs = active?.outputs ?? [];
   const viewerOutput = selectedOutput ?? activeOutputs[activeOutputs.length - 1] ?? globalOutputs[globalOutputs.length - 1] ?? null;
   const proposedStructure = viewerOutput ? contentList(viewerOutput.content, "proposed_structure") : [];
+  const capabilities = state.data?.capability_requests ?? [];
+  const activeCapability = selectedCapability ?? capabilities[capabilities.length - 1] ?? null;
   return (
     <section className="creator-console" id="creator-console">
       <div className="section-heading">
@@ -311,6 +348,59 @@ function CreatorConsole({
             <ActionButton onClick={onExecute}>execute metadata-only</ActionButton>
           </div>
           <p>Execution is metadata-only, audited, and blocked unless human approval is recorded.</p>
+        </section>
+
+        <section className="creator-card capability-card">
+          <div className="card-topline">
+            <span>Requested capabilities</span>
+            <StatusBadge value={activeCapability?.status ?? "pending"} tone={toneForStatus(activeCapability?.status ?? "pending")} />
+          </div>
+          <div className="capability-form">
+            <select value={capabilityKind} onChange={(event) => onCapabilityKind(event.target.value as CapabilityKind)} aria-label="Capability kind">
+              {(["more_context", "better_coding", "ocr", "image_generation", "video_generation", "voice", "strong_reasoning", "lower_cost", "higher_speed", "mass_processing", "other"] as CapabilityKind[]).map((kind) => (
+                <option key={kind} value={kind}>{kind}</option>
+              ))}
+            </select>
+            <input value={capabilityObjective} onChange={(event) => onCapabilityObjective(event.target.value)} placeholder="Capability objective" />
+            <textarea value={capabilityExplanation} onChange={(event) => onCapabilityExplanation(event.target.value)} placeholder="Why FORJA needs this capability" />
+            <ActionButton onClick={onCapabilitySubmit} loading={busy}>Request capability</ActionButton>
+          </div>
+          <div className="capability-list">
+            {capabilities.length ? capabilities.slice(-4).reverse().map((item) => (
+              <button key={item.id} type="button" onClick={() => onSelectCapability(item)} className={activeCapability?.id === item.id ? "active" : ""}>
+                <strong>{item.requirements[0]?.kind ?? "capability"}</strong>
+                <span>{item.objective}</span>
+                <small>reply={item.reply_to}</small>
+                <StatusBadge value={item.status} tone={toneForStatus(item.status)} />
+              </button>
+            )) : <p>No capability requests yet.</p>}
+          </div>
+          {activeCapability ? (
+            <div className="capability-detail">
+              <p>{activeCapability.explanation}</p>
+              <div className="classification-strip">
+                <span>sender={activeCapability.sender}</span>
+                <span>reply={activeCapability.reply_to}</span>
+                <span>response={activeCapability.response}</span>
+              </div>
+              <div className="permission-list">
+                {(activeCapability.requirements[0]?.characteristics ?? ["technical_need"]).map((item) => <span key={item}>{item}</span>)}
+              </div>
+              <div className="capability-actions">
+                <ActionButton variant="ghost" onClick={() => onCapabilityDecision("approve")}>approve capability</ActionButton>
+                <ActionButton variant="ghost" onClick={() => onCapabilityDecision("reject")}>reject capability</ActionButton>
+                <ActionButton onClick={onAttachCapabilityMetadata}>attach approved metadata</ActionButton>
+              </div>
+              <div className="capability-timeline">
+                {activeCapability.timeline.slice(-4).map((event) => (
+                  <div key={`${event.timestamp}-${event.event}`} className="timeline-row">
+                    <strong>{event.event}</strong>
+                    <span>{event.detail}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </section>
 
         <section className="creator-card timeline-card">
@@ -441,6 +531,10 @@ export default function App() {
   const [creatorMessage, setCreatorMessage] = useState<string | null>(null);
   const [selectedCreatorCommand, setSelectedCreatorCommand] = useState<CreatorCommand | null>(null);
   const [selectedCreatorOutput, setSelectedCreatorOutput] = useState<CreatorOutput | null>(null);
+  const [capabilityKind, setCapabilityKind] = useState<CapabilityKind>("strong_reasoning");
+  const [capabilityObjective, setCapabilityObjective] = useState("Request stronger reasoning capability");
+  const [capabilityExplanation, setCapabilityExplanation] = useState("FORJA needs a stronger reasoning capability for advanced planning. No provider, cost, or API call is selected.");
+  const [selectedCapability, setSelectedCapability] = useState<CapabilityRequest | null>(null);
   const { health, runtime } = useRuntimeData(refreshKey);
   const creatorState = useCreatorConsole(creatorRefreshKey);
 
@@ -472,6 +566,67 @@ export default function App() {
   const downloadCreatorOutput = (output: CreatorOutput) => {
     window.open(`${API_URL}/creator/outputs/${output.id}/metadata`, "_blank", "noreferrer");
     setCreatorMessage(`Metadata download requested for ${output.output_type}.`);
+  };
+  const submitCapabilityRequest = () => {
+    setCreatorBusy(true);
+    setCreatorMessage(null);
+    postJson<CapabilityRequest>("/creator/capabilities", {
+      sender: creatorSender,
+      objective: capabilityObjective,
+      explanation: capabilityExplanation,
+      related_command_id: selectedCreatorCommand?.id ?? null,
+      requirements: [
+        {
+          kind: capabilityKind,
+          characteristics: ["technical_need", "no_provider_selection", "no_api_consumption"],
+          reason: capabilityExplanation,
+          priority: capabilityKind === "mass_processing" || capabilityKind === "strong_reasoning" ? "high" : "medium",
+        },
+      ],
+    })
+      .then((record) => {
+        setSelectedCapability(record);
+        setCreatorMessage(`Capability request routed to ${record.reply_to}: ${record.response}`);
+        setCreatorRefreshKey((key) => key + 1);
+      })
+      .catch((error: Error) => setCreatorMessage(error.message))
+      .finally(() => setCreatorBusy(false));
+  };
+  const decideCapabilityRequest = (decision: "approve" | "reject") => {
+    if (!selectedCapability) {
+      setCreatorMessage("Select or create a capability request first.");
+      return;
+    }
+    setCreatorBusy(true);
+    postJson<CapabilityRequest>(`/creator/capabilities/${selectedCapability.id}/${decision}`, { reason: `Operator ${decision} from Requested Capabilities panel.` })
+      .then((record) => {
+        setSelectedCapability(record);
+        setCreatorMessage(`${decision} recorded for capability request. Status: ${record.status}.`);
+        setCreatorRefreshKey((key) => key + 1);
+      })
+      .catch((error: Error) => setCreatorMessage(error.message))
+      .finally(() => setCreatorBusy(false));
+  };
+  const attachCapabilityMetadata = () => {
+    if (!selectedCapability) {
+      setCreatorMessage("Select or create a capability request before attaching metadata.");
+      return;
+    }
+    setCreatorBusy(true);
+    postJson<CapabilityRequest>(`/creator/capabilities/${selectedCapability.id}/metadata`, {
+      metadata: {
+        capability_scope: selectedCapability.requirements.map((item) => item.kind),
+        constraints: ["metadata_only", "no_api_calls_yet", "no_secret_collection"],
+        authorized_surface: "capability_request_interface",
+      },
+    })
+      .then((record) => {
+        setSelectedCapability(record);
+        setCreatorMessage(`Approved capability metadata attached for ${record.reply_to}.`);
+        setCreatorRefreshKey((key) => key + 1);
+      })
+      .catch((error: Error) => setCreatorMessage(error.message))
+      .finally(() => setCreatorBusy(false));
   };
   const submitCreatorCommand = () => {
     setCreatorBusy(true);
@@ -530,6 +685,10 @@ export default function App() {
         busy={creatorBusy}
         message={creatorMessage}
         selectedOutput={selectedCreatorOutput}
+        capabilityKind={capabilityKind}
+        capabilityObjective={capabilityObjective}
+        capabilityExplanation={capabilityExplanation}
+        selectedCapability={selectedCapability}
         onSender={setCreatorSender}
         onCommand={setCreatorCommand}
         onDetails={setCreatorDetails}
@@ -540,6 +699,13 @@ export default function App() {
         }}
         onSelectOutput={setSelectedCreatorOutput}
         onDownloadOutput={downloadCreatorOutput}
+        onCapabilityKind={setCapabilityKind}
+        onCapabilityObjective={setCapabilityObjective}
+        onCapabilityExplanation={setCapabilityExplanation}
+        onCapabilitySubmit={submitCapabilityRequest}
+        onSelectCapability={setSelectedCapability}
+        onCapabilityDecision={decideCapabilityRequest}
+        onAttachCapabilityMetadata={attachCapabilityMetadata}
         onDecision={decideCreatorCommand}
         onExecute={executeCreatorCommand}
       />

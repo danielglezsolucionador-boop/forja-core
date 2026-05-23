@@ -28,6 +28,21 @@ CreatorPipelineStatus = Literal[
     "failed",
 ]
 CreatorDecision = Literal["approve", "reject", "hold"]
+CapabilityStatus = Literal["pending", "approved", "rejected", "unavailable"]
+CapabilityKind = Literal[
+    "more_context",
+    "better_coding",
+    "ocr",
+    "image_generation",
+    "video_generation",
+    "voice",
+    "strong_reasoning",
+    "lower_cost",
+    "higher_speed",
+    "mass_processing",
+    "other",
+]
+CapabilityReplyTarget = Literal["ceo", "cerebro", "seo", "system"]
 
 
 class CreatorCommandIn(BaseModel):
@@ -51,6 +66,29 @@ class CreatorOutputAssociateIn(BaseModel):
     summary: str = Field(default="metadata_only_output", max_length=1200)
     status: str = Field(default="associated_metadata_only", max_length=80)
     content: dict[str, Any] = Field(default_factory=dict)
+
+
+class CapabilityRequirementIn(BaseModel):
+    kind: CapabilityKind
+    characteristics: list[str] = Field(default_factory=list, max_length=12)
+    reason: str = Field(min_length=3, max_length=1200)
+    priority: Literal["low", "medium", "high", "critical"] = "medium"
+
+
+class CapabilityRequestIn(BaseModel):
+    sender: CreatorSender = "user"
+    objective: str = Field(min_length=3, max_length=240)
+    explanation: str = Field(min_length=3, max_length=2000)
+    requirements: list[CapabilityRequirementIn] = Field(min_length=1, max_length=8)
+    related_command_id: str | None = Field(default=None, max_length=80)
+
+
+class CapabilityDecisionIn(BaseModel):
+    reason: str = Field(default="", max_length=1000)
+
+
+class CapabilityMetadataIn(BaseModel):
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class CreatorPipelineStep(BaseModel):
@@ -98,6 +136,36 @@ class CreatorOutput(BaseModel):
     created_at: str
 
 
+class CapabilityRequirement(BaseModel):
+    id: str
+    kind: CapabilityKind
+    characteristics: list[str]
+    reason: str
+    priority: Literal["low", "medium", "high", "critical"]
+
+
+class CapabilityTimelineEvent(BaseModel):
+    timestamp: str
+    event: str
+    detail: str
+
+
+class CapabilityRequestRecord(BaseModel):
+    id: str
+    timestamp: str
+    sender: CreatorSender
+    reply_to: CapabilityReplyTarget
+    related_command_id: str | None = None
+    objective: str
+    explanation: str
+    status: CapabilityStatus
+    response: str
+    requirements: list[CapabilityRequirement]
+    governance: dict[str, Any]
+    timeline: list[CapabilityTimelineEvent]
+    approved_metadata: dict[str, Any] | None = None
+
+
 class CreatorCommandRecord(BaseModel):
     id: str
     timestamp: str
@@ -122,4 +190,5 @@ class CreatorConsoleState(BaseModel):
     command_statuses: list[CreatorPipelineStatus]
     commands: list[CreatorCommandRecord]
     outputs: list[CreatorOutput]
+    capability_requests: list[CapabilityRequestRecord]
     audit_stream: list[dict]

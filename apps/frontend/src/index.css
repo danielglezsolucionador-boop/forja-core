@@ -97,7 +97,10 @@ a {
 }
 
 .command-console-panel input,
-.command-console-panel textarea {
+.command-console-panel textarea,
+.capability-form input,
+.capability-form textarea,
+.capability-form select {
   width: 100%;
   border: 1px solid rgba(218, 146, 79, 0.22);
   border-radius: 18px;
@@ -113,16 +116,29 @@ a {
   font-weight: 850;
 }
 
-.command-console-panel textarea {
+.command-console-panel textarea,
+.capability-form textarea {
   min-height: 128px;
   resize: vertical;
   padding: 16px;
   line-height: 1.5;
 }
 
+.capability-form input,
+.capability-form select {
+  min-height: 48px;
+  padding: 0 14px;
+  font-weight: 850;
+}
+
+.capability-form select {
+  cursor: pointer;
+}
+
 .sender-switch,
 .quick-commands,
-.approval-actions {
+.approval-actions,
+.capability-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -298,6 +314,75 @@ a {
 
 .output-manager-card {
   grid-column: span 2;
+}
+
+.capability-card {
+  grid-column: span 2;
+}
+
+.capability-form {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.8fr) minmax(0, 1.2fr);
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.capability-form textarea,
+.capability-form .forge-button {
+  grid-column: 1 / -1;
+}
+
+.capability-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.capability-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.3fr) minmax(0, 0.7fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 68px;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 18px;
+  padding: 12px;
+  color: #f7eadb;
+  background: rgba(255, 255, 255, 0.035);
+  cursor: pointer;
+}
+
+.capability-list button.active {
+  border-color: rgba(239, 171, 99, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 221, 181, 0.1), 0 14px 30px rgba(154, 64, 28, 0.16);
+}
+
+.capability-list strong,
+.capability-list span,
+.capability-list small {
+  overflow-wrap: anywhere;
+}
+
+.capability-list small {
+  color: #d8a56d;
+  font-weight: 850;
+}
+
+.capability-detail {
+  margin-top: 16px;
+  border-radius: 22px;
+  padding: 16px;
+  border: 1px solid rgba(211, 147, 74, 0.18);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.capability-actions {
+  margin-top: 16px;
+}
+
+.capability-timeline {
+  margin-top: 14px;
 }
 
 .output-toolbar {
@@ -978,8 +1063,12 @@ a {
   }
 
   .artifact-list button,
-  .result-columns {
+  .result-columns,
+  .capability-card,
+  .capability-form,
+  .capability-list button {
     grid-template-columns: 1fr;
+    grid-column: auto;
   }
 }
 

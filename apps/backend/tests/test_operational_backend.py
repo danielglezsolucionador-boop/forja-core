@@ -188,3 +188,88 @@ def test_creator_output_manager_lists_downloads_and_associates_metadata() -> Non
     assert associated.status_code == 200
     assert associated.json()["mode"] == "metadata_only_output"
     assert associated.json()["request_id"] == created["id"]
+
+
+def test_creator_capability_requests_are_sender_aware_and_audited() -> None:
+    user_request = client.post(
+        "/creator/capabilities",
+        json={
+            "sender": "user",
+            "objective": "Need OCR for invoice review",
+            "explanation": "FORJA needs OCR capability to inspect scanned fiscal documents.",
+            "requirements": [
+                {
+                    "kind": "ocr",
+                    "characteristics": ["spanish_documents", "structured_text"],
+                    "reason": "Scanned invoices cannot be inspected as plain text.",
+                    "priority": "high",
+                }
+            ],
+        },
+    )
+    assert user_request.status_code == 200
+    payload = user_request.json()
+    assert payload["status"] == "pending"
+    assert payload["reply_to"] == "ceo"
+    assert payload["response"] == "capability_request_pending_for_ceo"
+    assert payload["governance"]["external_api_calls_enabled"] is False
+
+    blocked_metadata = client.post(
+        f"/creator/capabilities/{payload['id']}/metadata",
+        json={"metadata": {"capability_scope": "ocr_only"}},
+    )
+    assert blocked_metadata.status_code == 409
+    assert blocked_metadata.json()["detail"] == "capability_request_not_approved"
+
+    approved = client.post(
+        f"/creator/capabilities/{payload['id']}/approve",
+        json={"reason": "CEO approved OCR capability search without provider selection."},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+
+    attached = client.post(
+        f"/creator/capabilities/{payload['id']}/metadata",
+        json={"metadata": {"capability_scope": "ocr_only", "constraints": ["no_api_calls_yet"]}},
+    )
+    assert attached.status_code == 200
+    attached_payload = attached.json()
+    assert attached_payload["approved_metadata"]["metadata_only"] is True
+    assert attached_payload["approved_metadata"]["provider_selected"] is False
+    assert attached_payload["approved_metadata"]["api_consumption_enabled"] is False
+
+    cerebro_request = client.post(
+        "/creator/capabilities",
+        json={
+            "sender": "cerebro",
+            "objective": "Need stronger reasoning",
+            "explanation": "Cerebro asks FORJA to request stronger reasoning capability for architecture planning.",
+            "requirements": [
+                {
+                    "kind": "strong_reasoning",
+                    "characteristics": ["architecture_planning"],
+                    "reason": "The task needs deeper multi-step planning.",
+                    "priority": "medium",
+                }
+            ],
+        },
+    )
+    assert cerebro_request.status_code == 200
+    assert cerebro_request.json()["reply_to"] == "cerebro"
+    assert cerebro_request.json()["response"] == "capability_request_pending_for_cerebro"
+
+    rejected = client.post(
+        f"/creator/capabilities/{cerebro_request.json()['id']}/reject",
+        json={"reason": "Cerebro rejected this request for now."},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+
+    listed = client.get("/creator/capabilities", params={"sender": "user"})
+    assert listed.status_code == 200
+    assert any(item["id"] == payload["id"] for item in listed.json())
+
+    state = client.get("/creator/console")
+    assert state.status_code == 200
+    assert any(item["id"] == payload["id"] for item in state.json()["capability_requests"])
+    assert any(event["event_type"] == "creator.capability_requested" for event in state.json()["audit_stream"])

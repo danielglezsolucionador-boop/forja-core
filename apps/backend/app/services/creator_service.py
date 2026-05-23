@@ -31,6 +31,7 @@ OUTPUT_TYPE_BY_REQUEST = {
 class CreatorService:
     def __init__(self) -> None:
         self._commands = store("creator_commands")
+        self._capabilities = store("creator_capability_requests")
 
     def console_state(self, limit: int = 50) -> dict:
         return {
@@ -39,6 +40,7 @@ class CreatorService:
             "command_statuses": COMMAND_STATUSES,
             "commands": self.list_commands(limit),
             "outputs": self.list_outputs(limit=100),
+            "capability_requests": self.list_capability_requests(limit=100),
             "audit_stream": read_audit_events(60),
         }
 
@@ -231,6 +233,130 @@ class CreatorService:
                 risk="low",
             )
         return result
+
+    def create_capability_request(self, payload: dict) -> dict:
+        now = utc_now()
+        reply_to = self._capability_reply_target(payload["sender"])
+        requirements = [
+            {
+                "id": str(uuid.uuid4()),
+                "kind": item["kind"],
+                "characteristics": item.get("characteristics", []),
+                "reason": item["reason"],
+                "priority": item.get("priority", "medium"),
+            }
+            for item in payload["requirements"]
+        ]
+        record = {
+            "id": str(uuid.uuid4()),
+            "timestamp": now,
+            "sender": payload["sender"],
+            "reply_to": reply_to,
+            "related_command_id": payload.get("related_command_id"),
+            "objective": payload["objective"],
+            "explanation": payload["explanation"],
+            "status": "pending",
+            "response": f"capability_request_pending_for_{reply_to}",
+            "requirements": requirements,
+            "governance": self._capability_governance("pending"),
+            "timeline": [
+                self._event(now, "capability.requested", f"Capability request created by {payload['sender']}."),
+                self._event(now, "capability.governance_checked", "FORJA requested technical capability only; provider, cost, and strategy decisions remain external."),
+                self._event(now, "capability.awaiting_decision", f"Awaiting authorization from {reply_to}."),
+            ],
+            "approved_metadata": None,
+        }
+        self._capabilities.update([], lambda records: records.append(record))
+        append_audit_event(
+            "creator.capability_requested",
+            payload["sender"],
+            {"id": record["id"], "reply_to": reply_to, "requirements": [item["kind"] for item in requirements]},
+            risk="medium",
+        )
+        return self._normalize_capability_request(record)
+
+    def list_capability_requests(self, sender: str | None = None, status: str | None = None, limit: int = 100) -> list[dict]:
+        records = [self._normalize_capability_request(record) for record in self._capabilities.read([])]
+        if sender:
+            records = [record for record in records if record["sender"] == sender]
+        if status:
+            records = [record for record in records if record["status"] == status]
+        return records[-limit:]
+
+    def decide_capability_request(self, request_id: str, decision: str, reason: str) -> dict | None:
+        result: dict | None = None
+        now = utc_now()
+
+        def mutate(records: list[dict]) -> None:
+            nonlocal result
+            for record in records:
+                if record["id"] != request_id:
+                    continue
+                normalized = self._normalize_capability_request(record)
+                record.clear()
+                record.update(normalized)
+                record["status"] = decision
+                record["response"] = f"capability_request_{decision}_for_{record['reply_to']}"
+                record["governance"] = self._capability_governance(decision)
+                record["timeline"].append(self._event(now, f"capability.{decision}", reason or f"Capability request {decision}."))
+                result = self._normalize_capability_request(record)
+                return
+
+        self._capabilities.update([], mutate)
+        if result is not None:
+            append_audit_event(
+                "creator.capability_decision",
+                "operator",
+                {"id": request_id, "decision": decision, "reply_to": result["reply_to"]},
+                risk="medium",
+            )
+        return result
+
+    def attach_capability_metadata(self, request_id: str, metadata: dict) -> tuple[dict | None, str | None]:
+        result: dict | None = None
+        error: str | None = None
+        now = utc_now()
+
+        def mutate(records: list[dict]) -> None:
+            nonlocal result, error
+            for record in records:
+                if record["id"] != request_id:
+                    continue
+                normalized = self._normalize_capability_request(record)
+                record.clear()
+                record.update(normalized)
+                if record["status"] != "approved":
+                    error = "capability_request_not_approved"
+                    result = self._normalize_capability_request(record)
+                    return
+                if self._metadata_has_forbidden_keys(metadata):
+                    record["status"] = "unavailable"
+                    record["response"] = f"capability_metadata_rejected_by_governance_for_{record['reply_to']}"
+                    record["governance"] = self._capability_governance("unavailable")
+                    record["timeline"].append(
+                        self._event(now, "capability.metadata_blocked", "Metadata included provider, secret, cost, or strategy fields that FORJA cannot decide.")
+                    )
+                else:
+                    record["approved_metadata"] = {
+                        "metadata_only": True,
+                        "provider_selected": False,
+                        "api_consumption_enabled": False,
+                        **metadata,
+                    }
+                    record["response"] = f"capability_metadata_attached_for_{record['reply_to']}"
+                    record["timeline"].append(self._event(now, "capability.metadata_attached", "Approved capability metadata attached without provider selection or API consumption."))
+                result = self._normalize_capability_request(record)
+                return
+
+        self._capabilities.update([], mutate)
+        if result is not None and error is None:
+            append_audit_event(
+                "creator.capability_metadata_attached",
+                "operator",
+                {"id": request_id, "status": result["status"], "reply_to": result["reply_to"]},
+                risk="medium",
+            )
+        return result, error
 
     def list_commands(self, limit: int = 50) -> list[dict]:
         return [self._normalize_record(record) for record in self._commands.read([])[-limit:]]
@@ -572,6 +698,72 @@ class CreatorService:
             "status": record["status"],
             "response": record["response"],
         }
+
+    def _normalize_capability_request(self, record: dict) -> dict:
+        normalized = dict(record)
+        normalized.setdefault("id", str(uuid.uuid4()))
+        normalized.setdefault("timestamp", utc_now())
+        normalized.setdefault("sender", "system")
+        if normalized["sender"] not in {"user", "cerebro", "seo", "system"}:
+            normalized["sender"] = "system"
+        normalized.setdefault("reply_to", self._capability_reply_target(normalized["sender"]))
+        if normalized["reply_to"] not in {"ceo", "cerebro", "seo", "system"}:
+            normalized["reply_to"] = self._capability_reply_target(normalized["sender"])
+        normalized.setdefault("related_command_id", None)
+        normalized.setdefault("objective", "Capability request")
+        normalized.setdefault("explanation", "FORJA detected a technical capability requirement.")
+        normalized.setdefault("status", "pending")
+        normalized.setdefault("response", f"capability_request_{normalized['status']}_for_{normalized['reply_to']}")
+        normalized["requirements"] = [
+            {
+                "id": item.get("id", str(uuid.uuid4())),
+                "kind": item.get("kind", "other"),
+                "characteristics": item.get("characteristics", []),
+                "reason": item.get("reason", "Capability required for advanced task execution."),
+                "priority": item.get("priority", "medium"),
+            }
+            for item in normalized.get("requirements", [])
+        ]
+        normalized.setdefault("governance", self._capability_governance(normalized["status"]))
+        normalized["governance"].setdefault("forja_role", "technical_capability_requester_only")
+        normalized["governance"].setdefault("provider_decision_owner", ["ceo", "cerebro"])
+        normalized["governance"].setdefault("forbidden_actions", ["provider_selection", "cost_decision", "strategy_decision", "api_consumption"])
+        normalized.setdefault("timeline", [])
+        normalized.setdefault("approved_metadata", None)
+        return normalized
+
+    def _capability_reply_target(self, sender: str) -> str:
+        if sender == "user":
+            return "ceo"
+        if sender == "cerebro":
+            return "cerebro"
+        if sender == "seo":
+            return "seo"
+        return "system"
+
+    def _capability_governance(self, status: str) -> dict:
+        return {
+            "status": status,
+            "forja_role": "technical_capability_requester_only",
+            "provider_decision_owner": ["ceo", "cerebro"],
+            "cost_decision_owner": ["ceo", "cerebro"],
+            "strategy_decision_owner": ["ceo", "cerebro"],
+            "forbidden_actions": ["provider_selection", "cost_decision", "strategy_decision", "api_consumption", "secret_collection"],
+            "external_api_calls_enabled": False,
+            "requires_authorization": status == "pending",
+        }
+
+    def _metadata_has_forbidden_keys(self, value: Any) -> bool:
+        forbidden = ["provider", "api_key", "token", "secret", "cost", "price", "billing", "strategy"]
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if any(marker in str(key).lower() for marker in forbidden):
+                    return True
+                if self._metadata_has_forbidden_keys(nested):
+                    return True
+        if isinstance(value, list):
+            return any(self._metadata_has_forbidden_keys(item) for item in value)
+        return False
 
     def _event(self, timestamp: str, event: str, detail: str) -> dict:
         return {"timestamp": timestamp, "event": event, "detail": detail}

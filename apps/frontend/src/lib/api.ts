@@ -36,6 +36,40 @@ export type RuntimeStatus = {
 
 export type CreatorSender = "user" | "cerebro" | "seo" | "system";
 export type CreatorDecision = "approve" | "reject" | "hold";
+export type CapabilityStatus = "pending" | "approved" | "rejected" | "unavailable";
+export type CapabilityKind =
+  | "more_context"
+  | "better_coding"
+  | "ocr"
+  | "image_generation"
+  | "video_generation"
+  | "voice"
+  | "strong_reasoning"
+  | "lower_cost"
+  | "higher_speed"
+  | "mass_processing"
+  | "other";
+export type CapabilityRequest = {
+  id: string;
+  timestamp: string;
+  sender: CreatorSender;
+  reply_to: "ceo" | "cerebro" | "seo" | "system";
+  related_command_id: string | null;
+  objective: string;
+  explanation: string;
+  status: CapabilityStatus;
+  response: string;
+  requirements: Array<{
+    id: string;
+    kind: CapabilityKind;
+    characteristics: string[];
+    reason: string;
+    priority: "low" | "medium" | "high" | "critical";
+  }>;
+  governance: Record<string, unknown>;
+  timeline: Array<{ timestamp: string; event: string; detail: string }>;
+  approved_metadata: Record<string, unknown> | null;
+};
 export type CreatorOutputType =
   | "proposed_app_structure"
   | "api_blueprint"
@@ -95,6 +129,7 @@ export type CreatorConsoleState = {
   command_statuses: string[];
   commands: CreatorCommand[];
   outputs: CreatorOutput[];
+  capability_requests: CapabilityRequest[];
   audit_stream: Array<Record<string, unknown>>;
 };
 
