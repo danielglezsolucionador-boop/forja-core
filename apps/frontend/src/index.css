@@ -771,23 +771,27 @@ a {
   margin-top: 18px;
 }
 
-.api-chip,
-.status-badge {
+.api-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.status-badge {
+  display: inline-block;
   max-width: 100%;
   min-width: 0;
   min-height: 34px;
   border-radius: 999px;
-  padding: 0 12px;
+  padding: 8px 12px;
   font-size: 12px;
   font-weight: 900;
-  line-height: 1.2;
+  line-height: 1.25;
   text-align: center;
   white-space: normal;
   overflow-wrap: anywhere;
-  word-break: break-all;
+  word-break: normal;
+  vertical-align: top;
 }
 
 .api-chip {
@@ -1314,7 +1318,7 @@ a {
   }
 
   .creator-console .status-badge {
-    display: flex;
+    display: block;
     width: 100%;
     max-width: 100%;
     height: auto;
@@ -1322,8 +1326,7 @@ a {
     padding-bottom: 8px;
     white-space: normal;
     overflow-wrap: anywhere;
-    word-break: break-all;
-    justify-content: center;
+    word-break: normal;
     text-align: center;
   }
 
