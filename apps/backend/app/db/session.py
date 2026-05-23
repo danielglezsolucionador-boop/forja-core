@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 
@@ -9,7 +10,14 @@ from app.core.config import settings
 def create_engine() -> AsyncEngine | None:
     if not settings.database_enabled:
         return None
-    return create_async_engine(settings.effective_database_url, pool_pre_ping=True, future=True, connect_args=settings.database_connect_args)
+    options = {
+        "pool_pre_ping": True,
+        "future": True,
+        "connect_args": settings.database_connect_args,
+    }
+    if settings.is_local:
+        options["poolclass"] = NullPool
+    return create_async_engine(settings.effective_database_url, **options)
 
 
 engine = create_engine()

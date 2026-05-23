@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi.testclient import TestClient
 
+from app.core.audit import read_audit_events
 from app.core.config import settings
 from app.main import app
+from app.services.creator_service import creator_service
 
 
 client = TestClient(app)
@@ -132,6 +136,68 @@ def test_creator_execution_requires_approval_then_completes_metadata_only() -> N
     assert payload["response"] == "metadata_only_completed_for_user"
     assert any(item["event"] == "execution.completed" for item in payload["timeline"])
     assert any(item["output_type"] == "workflow_plan" and item["mode"] == "metadata_only_output" for item in payload["outputs"])
+
+
+def test_creator_execution_is_idempotent_after_completion() -> None:
+    response = client.post(
+        "/creator/commands",
+        json={"sender": "user", "command": "Prepare module package", "details": "Metadata only. No external AI."},
+    )
+    assert response.status_code == 200
+    created = response.json()
+
+    approved = client.post(
+        f"/creator/commands/{created['id']}/decision",
+        json={"decision": "approve", "reason": "Idempotency validation."},
+    )
+    assert approved.status_code == 200
+
+    first = client.post(f"/creator/commands/{created['id']}/execute", json={"metadata_only": True})
+    assert first.status_code == 200
+    second = client.post(f"/creator/commands/{created['id']}/execute", json={"metadata_only": True})
+    assert second.status_code == 200
+
+    payload = second.json()
+    module_outputs = [output for output in payload["outputs"] if output["output_type"] == "module_plan"]
+    completed_summaries = [output for output in payload["outputs"] if output["output_type"] == "execution_summary" and output["status"] == "completed"]
+    assert payload["status"] == "completed"
+    assert len(module_outputs) == 1
+    assert len(completed_summaries) == 1
+    assert len([item for item in payload["timeline"] if item["event"] == "execution.started"]) == 1
+    assert len([item for item in payload["timeline"] if item["event"] == "execution.completed"]) == 1
+    assert any(item["event"] == "execution.duplicate_blocked" for item in payload["timeline"])
+    assert any(event["event_type"] == "creator.duplicate_execution_blocked" for event in read_audit_events(200))
+
+
+def test_creator_execution_blocks_concurrent_duplicate_attempts() -> None:
+    response = client.post(
+        "/creator/commands",
+        json={"sender": "cerebro", "command": "Prepare integration module", "details": "Metadata only. No external AI."},
+    )
+    assert response.status_code == 200
+    created = response.json()
+
+    approved = client.post(
+        f"/creator/commands/{created['id']}/decision",
+        json={"decision": "approve", "reason": "Concurrent idempotency validation."},
+    )
+    assert approved.status_code == 200
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(lambda _: creator_service.execute_command(created["id"], True), range(8)))
+
+    assert all(result is not None for result in results)
+    final = creator_service.execute_command(created["id"], True)
+    assert final is not None
+    integration_outputs = [output for output in final["outputs"] if output["output_type"] == "integration_plan"]
+    completed_summaries = [output for output in final["outputs"] if output["output_type"] == "execution_summary" and output["status"] == "completed"]
+    assert final["status"] == "completed"
+    assert len(integration_outputs) == 1
+    assert len(completed_summaries) == 1
+    assert len([item for item in final["timeline"] if item["event"] == "execution.started"]) == 1
+    assert len([item for item in final["timeline"] if item["event"] == "execution.completed"]) == 1
+    assert len([item for item in final["timeline"] if item["event"] == "execution.duplicate_blocked"]) >= 1
+    assert any(event["event_type"] == "creator.duplicate_execution_blocked" for event in read_audit_events(300))
 
 
 def test_creator_output_manager_lists_downloads_and_associates_metadata() -> None:

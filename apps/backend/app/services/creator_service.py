@@ -159,15 +159,22 @@ class CreatorService:
 
     def execute_command(self, command_id: str, metadata_only: bool) -> dict | None:
         result: dict | None = None
+        duplicate_reason: str | None = None
         now = utc_now()
 
         def mutate(records: list[dict]) -> None:
-            nonlocal result
+            nonlocal result, duplicate_reason
             for record in records:
                 if record["id"] != command_id:
                     continue
                 self._prepare_record_for_mutation(record)
-                if record["response"] == "blocked_provider_disabled":
+                if record["status"] == "completed":
+                    duplicate_reason = "request_already_completed"
+                    self._record_duplicate_execution_attempt(record, now, duplicate_reason)
+                elif record["status"] == "executing":
+                    duplicate_reason = "request_already_executing"
+                    self._record_duplicate_execution_attempt(record, now, duplicate_reason)
+                elif record["response"] == "blocked_provider_disabled":
                     self._block_execution(record, now, "blocked_provider_disabled")
                 elif record["governance"]["approval_status"] != "approved":
                     self._block_execution(record, now, "missing_human_approval")
@@ -190,10 +197,17 @@ class CreatorService:
 
         self._commands.update([], mutate)
         if result is not None:
+            event_type = "creator.duplicate_execution_blocked" if duplicate_reason else "creator.execution_attempted"
             append_audit_event(
-                "creator.execution_attempted",
+                event_type,
                 "operator",
-                {"id": command_id, "status": result["status"], "response": result["response"], "outputs": len(result["outputs"])},
+                {
+                    "id": command_id,
+                    "status": result["status"],
+                    "response": result["response"],
+                    "outputs": len(result["outputs"]),
+                    "reason": duplicate_reason,
+                },
                 risk=result["governance"]["risk_level"],
             )
         return result
@@ -707,6 +721,11 @@ class CreatorService:
         record["timeline"].append(self._event(now, "execution.blocked", reason))
         record["execution_logs"].append(self._log(now, "warning", reason))
         record["outputs"].append(self._blocked_output(record, reason, now))
+
+    def _record_duplicate_execution_attempt(self, record: dict, now: str, reason: str) -> None:
+        record["pipeline"] = self._pipeline(record["status"], record["response"] == "blocked_provider_disabled")
+        record["timeline"].append(self._event(now, "execution.duplicate_blocked", reason))
+        record["execution_logs"].append(self._log(now, "warning", f"duplicate_execution_blocked:{reason}"))
 
     def _pipeline(self, status: str, provider_blocked: bool) -> list[dict]:
         labels = {
