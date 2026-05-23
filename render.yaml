@@ -44,7 +44,7 @@ services:
     name: forja-frontend
     runtime: static
     rootDir: apps/frontend
-    buildCommand: npm ci && npm run build
+    buildCommand: npm install && npm run build
     staticPublishPath: dist
     envVars:
       - key: VITE_FORJA_API_URL
