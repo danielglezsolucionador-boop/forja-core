@@ -787,7 +787,9 @@ a {
   font-size: 12px;
   font-weight: 900;
   line-height: 1.25;
+  letter-spacing: 0.08em;
   text-align: center;
+  text-transform: uppercase;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: normal;
@@ -1324,6 +1326,8 @@ a {
     height: auto;
     padding-top: 8px;
     padding-bottom: 8px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
     white-space: normal;
     overflow-wrap: anywhere;
     word-break: normal;
