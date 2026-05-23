@@ -85,7 +85,7 @@ function contentList(content: Record<string, unknown>, key: string): string[] {
 
 function StatusBadge({ value, tone }: { value: string | boolean | number; tone?: Tone }) {
   const resolvedTone = tone ?? toneForStatus(typeof value === "number" ? "ok" : value);
-  return <span className={`status-badge ${resolvedTone}`}>{String(value)}</span>;
+  return <span className={`status-badge ${resolvedTone}`}>{String(value).replace(/_/g, " ")}</span>;
 }
 
 function ActionButton({
