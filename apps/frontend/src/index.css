@@ -1074,6 +1074,22 @@ a {
     font-size: 16px;
   }
 
+  .creator-console .status-badge {
+    max-width: 100%;
+    height: auto;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+
+  .creator-console .quick-commands button {
+    flex: 1 1 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   .pipeline-rail {
     grid-template-columns: 1fr;
   }
