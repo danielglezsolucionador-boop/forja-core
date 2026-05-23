@@ -1,4 +1,6 @@
 .forja/state/*.json
+.forja/state/*.log
+.forja/state/*.png
 .forja/state/tmp*
 .forja/audit/*.jsonl
 .forja/audit/*.json
