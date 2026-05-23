@@ -58,6 +58,7 @@ a {
 
 .creator-console {
   margin-bottom: 18px;
+  max-width: calc(100vw - 32px);
   border-radius: 34px;
   padding: 24px;
   border: 1px solid rgba(202, 122, 67, 0.24);
@@ -848,6 +849,7 @@ a {
   font-size: 42px;
   line-height: 1;
   font-weight: 950;
+  overflow-wrap: anywhere;
 }
 
 .module-grid {
@@ -1029,6 +1031,7 @@ a {
   }
 
   .creator-console {
+    max-width: calc(100vw - 22px);
     border-radius: 28px;
     padding: 18px;
   }
