@@ -177,6 +177,7 @@ function CreatorConsole({
   onSubmit,
   onSelect,
   onDecision,
+  onExecute,
 }: {
   state: LoadState<CreatorConsoleState>;
   selected: CreatorCommand | null;
@@ -191,6 +192,7 @@ function CreatorConsole({
   onSubmit: () => void;
   onSelect: (value: CreatorCommand) => void;
   onDecision: (value: CreatorDecision) => void;
+  onExecute: () => void;
 }) {
   const commands = state.data?.commands ?? [];
   const active = selected ?? commands[commands.length - 1] ?? null;
@@ -247,6 +249,13 @@ function CreatorConsole({
             <span>Multi-agent channels</span>
             <StatusBadge value={active ? `reply=${active.reply_to_sender}` : "waiting"} />
           </div>
+          {active ? (
+            <div className="classification-strip">
+              <span>type={active.request_type}</span>
+              <span>risk={active.governance.risk_level}</span>
+              <span>approval={active.governance.approval_status}</span>
+            </div>
+          ) : null}
           <div className="channel-list">
             {commands.length ? commands.slice(-4).reverse().map((item) => (
               <button key={item.id} type="button" onClick={() => onSelect(item)} className={active?.id === item.id ? "active" : ""}>
@@ -264,6 +273,11 @@ function CreatorConsole({
             <StatusBadge value={active?.governance.risk_level ?? "not assessed"} tone="amber" />
           </div>
           <p>{active?.governance.blocked_reason ?? "No command selected."}</p>
+          {active ? (
+            <div className="plan-list">
+              {active.plan.map((item) => <span key={item}>{item}</span>)}
+            </div>
+          ) : null}
           <div className="permission-list">
             {(active?.governance.required_permissions ?? ["human_approval", "allow_write=true", "provider_enabled"]).map((permission) => <span key={permission}>{permission}</span>)}
           </div>
@@ -278,8 +292,9 @@ function CreatorConsole({
             <ActionButton variant="ghost" onClick={() => onDecision("approve")}>approve</ActionButton>
             <ActionButton variant="ghost" onClick={() => onDecision("reject")}>reject</ActionButton>
             <ActionButton variant="ghost" onClick={() => onDecision("hold")}>hold</ActionButton>
+            <ActionButton onClick={onExecute}>execute metadata-only</ActionButton>
           </div>
-          <p>Approval intent is recorded, but execution remains governed while provider execution is disabled.</p>
+          <p>Execution is metadata-only, audited, and blocked unless human approval is recorded.</p>
         </section>
 
         <section className="creator-card timeline-card">
@@ -291,6 +306,12 @@ function CreatorConsole({
             <div key={`${event.timestamp}-${event.event}`} className="timeline-row">
               <strong>{event.event}</strong>
               <span>{event.detail}</span>
+            </div>
+          ))}
+          {(active?.execution_logs ?? []).map((event) => (
+            <div key={`${event.timestamp}-${event.message}`} className="timeline-row">
+              <strong>log.{event.level}</strong>
+              <span>{event.message}</span>
             </div>
           ))}
         </section>
@@ -361,7 +382,7 @@ export default function App() {
   const [panel, setPanel] = useState<DetailPanel | null>(null);
   const [creatorSender, setCreatorSender] = useState<CreatorSender>("user");
   const [creatorCommand, setCreatorCommand] = useState("Prepare governed module");
-  const [creatorDetails, setCreatorDetails] = useState("Keep zero-write policy active. Do not call external AI providers.");
+  const [creatorDetails, setCreatorDetails] = useState("Keep zero-write policy active. Metadata-only execution. No provider.");
   const [creatorBusy, setCreatorBusy] = useState(false);
   const [creatorMessage, setCreatorMessage] = useState<string | null>(null);
   const [selectedCreatorCommand, setSelectedCreatorCommand] = useState<CreatorCommand | null>(null);
@@ -417,6 +438,21 @@ export default function App() {
       .catch((error: Error) => setCreatorMessage(error.message))
       .finally(() => setCreatorBusy(false));
   };
+  const executeCreatorCommand = () => {
+    if (!selectedCreatorCommand) {
+      setCreatorMessage("Select or submit a command before metadata-only execution.");
+      return;
+    }
+    setCreatorBusy(true);
+    postJson<CreatorCommand>(`/creator/commands/${selectedCreatorCommand.id}/execute`, { metadata_only: true })
+      .then((record) => {
+        setSelectedCreatorCommand(record);
+        setCreatorMessage(`Execution engine replied to sender=${record.reply_to_sender}: ${record.response}`);
+        setCreatorRefreshKey((key) => key + 1);
+      })
+      .catch((error: Error) => setCreatorMessage(error.message))
+      .finally(() => setCreatorBusy(false));
+  };
 
   return (
     <main className="forge-shell">
@@ -434,6 +470,7 @@ export default function App() {
         onSubmit={submitCreatorCommand}
         onSelect={setSelectedCreatorCommand}
         onDecision={decideCreatorCommand}
+        onExecute={executeCreatorCommand}
       />
 
       <section className="hero">

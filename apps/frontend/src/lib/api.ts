@@ -44,16 +44,20 @@ export type CreatorCommand = {
   reply_to_sender: CreatorSender;
   command: string;
   details: string;
+  request_type: "app" | "api" | "module" | "workflow" | "document" | "integration";
   status: string;
   response: string;
+  plan: string[];
   pipeline: Array<{ status: string; label: string; detail: string }>;
   governance: {
     risk_level: string;
-    blocked_reason: string;
+    blocked_reason: string | null;
     required_permissions: string[];
     provider_status: string;
+    approval_status: string;
   };
   timeline: Array<{ timestamp: string; event: string; detail: string }>;
+  execution_logs: Array<{ timestamp: string; level: string; message: string }>;
   outputs: Array<{ kind: string; name: string; status: string }>;
 };
 

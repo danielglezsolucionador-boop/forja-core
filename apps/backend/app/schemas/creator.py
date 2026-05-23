@@ -6,14 +6,15 @@ from pydantic import BaseModel, Field
 
 
 CreatorSender = Literal["user", "cerebro"]
+CreatorRequestType = Literal["app", "api", "module", "workflow", "document", "integration"]
 CreatorPipelineStatus = Literal[
     "received",
     "governance_check",
     "awaiting_approval",
     "approved",
-    "blocked",
     "executing",
     "completed",
+    "blocked",
     "failed",
 ]
 CreatorDecision = Literal["approve", "reject", "hold"]
@@ -30,6 +31,10 @@ class CreatorDecisionIn(BaseModel):
     reason: str = Field(default="", max_length=1000)
 
 
+class CreatorExecuteIn(BaseModel):
+    metadata_only: bool = True
+
+
 class CreatorPipelineStep(BaseModel):
     status: CreatorPipelineStatus
     label: str
@@ -38,9 +43,10 @@ class CreatorPipelineStep(BaseModel):
 
 class CreatorGovernanceSnapshot(BaseModel):
     risk_level: Literal["low", "medium", "high", "critical"]
-    blocked_reason: str
+    blocked_reason: str | None = None
     required_permissions: list[str]
     provider_status: str
+    approval_status: Literal["not_required", "pending", "approved", "rejected", "held"]
 
 
 class CreatorTimelineEvent(BaseModel):
@@ -49,8 +55,14 @@ class CreatorTimelineEvent(BaseModel):
     detail: str
 
 
+class CreatorExecutionLog(BaseModel):
+    timestamp: str
+    level: Literal["info", "warning", "error"]
+    message: str
+
+
 class CreatorOutput(BaseModel):
-    kind: Literal["file", "module", "result", "structure"]
+    kind: Literal["file", "module", "result", "structure", "metadata", "log"]
     name: str
     status: str
 
@@ -62,11 +74,14 @@ class CreatorCommandRecord(BaseModel):
     reply_to_sender: CreatorSender
     command: str
     details: str
+    request_type: CreatorRequestType
     status: CreatorPipelineStatus
     response: str
+    plan: list[str]
     pipeline: list[CreatorPipelineStep]
     governance: CreatorGovernanceSnapshot
     timeline: list[CreatorTimelineEvent]
+    execution_logs: list[CreatorExecutionLog]
     outputs: list[CreatorOutput]
 
 

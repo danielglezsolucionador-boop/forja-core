@@ -86,16 +86,49 @@ def test_ai_pipeline_records_but_blocks_provider_execution() -> None:
 def test_creator_console_blocks_without_provider_execution() -> None:
     response = client.post(
         "/creator/commands",
-        json={"sender": "cerebro", "command": "Build a controlled operator module", "details": "No external provider, no writes."},
+        json={"sender": "cerebro", "command": "Build a controlled operator module", "details": "Use external AI provider."},
     )
     assert response.status_code == 200
     payload = response.json()
     assert payload["sender"] == "cerebro"
     assert payload["reply_to_sender"] == "cerebro"
     assert payload["status"] == "blocked"
-    assert payload["response"] == "provider_disabled_by_governance"
+    assert payload["response"] == "blocked_provider_disabled"
     assert payload["governance"]["provider_status"] == "disabled"
 
     state = client.get("/creator/console")
     assert state.status_code == 200
     assert state.json()["provider_state"] == "provider_disabled_by_governance"
+
+
+def test_creator_execution_requires_approval_then_completes_metadata_only() -> None:
+    response = client.post(
+        "/creator/commands",
+        json={"sender": "user", "command": "Prepare workflow module", "details": "Metadata only. No external AI."},
+    )
+    assert response.status_code == 200
+    created = response.json()
+    assert created["status"] == "awaiting_approval"
+    assert created["request_type"] == "workflow"
+    assert created["reply_to_sender"] == "user"
+
+    blocked = client.post(f"/creator/commands/{created['id']}/execute", json={"metadata_only": True})
+    assert blocked.status_code == 200
+    assert blocked.json()["status"] == "blocked"
+    assert blocked.json()["response"] == "missing_human_approval"
+
+    approved = client.post(
+        f"/creator/commands/{created['id']}/decision",
+        json={"decision": "approve", "reason": "Controlled metadata-only execution approved."},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+    assert approved.json()["governance"]["approval_status"] == "approved"
+
+    executed = client.post(f"/creator/commands/{created['id']}/execute", json={"metadata_only": True})
+    assert executed.status_code == 200
+    payload = executed.json()
+    assert payload["status"] == "completed"
+    assert payload["response"] == "metadata_only_completed_for_user"
+    assert any(item["event"] == "execution.completed" for item in payload["timeline"])
+    assert any(item["kind"] == "metadata" and item["status"] == "created" for item in payload["outputs"])

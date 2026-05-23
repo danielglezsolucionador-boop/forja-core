@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from app.schemas.creator import CreatorCommandIn, CreatorCommandRecord, CreatorConsoleState, CreatorDecisionIn
+from app.schemas.creator import CreatorCommandIn, CreatorCommandRecord, CreatorConsoleState, CreatorDecisionIn, CreatorExecuteIn
 from app.services.creator_service import creator_service
 
 
@@ -22,6 +22,14 @@ def create_creator_command(payload: CreatorCommandIn) -> dict:
 @router.post("/commands/{command_id}/decision", response_model=CreatorCommandRecord)
 def decide_creator_command(command_id: str, payload: CreatorDecisionIn) -> dict:
     record = creator_service.decide_command(command_id, payload.decision, payload.reason)
+    if record is None:
+        raise HTTPException(status_code=404, detail="creator_command_not_found")
+    return record
+
+
+@router.post("/commands/{command_id}/execute", response_model=CreatorCommandRecord)
+def execute_creator_command(command_id: str, payload: CreatorExecuteIn) -> dict:
+    record = creator_service.execute_command(command_id, payload.metadata_only)
     if record is None:
         raise HTTPException(status_code=404, detail="creator_command_not_found")
     return record

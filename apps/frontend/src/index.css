@@ -242,6 +242,26 @@ a {
   margin-top: 16px;
 }
 
+.classification-strip,
+.plan-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.classification-strip span,
+.plan-list span {
+  border-radius: 999px;
+  padding: 8px 10px;
+  color: #d9c5ad;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  font-size: 12px;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
 .permission-list span {
   border-radius: 999px;
   padding: 8px 10px;
