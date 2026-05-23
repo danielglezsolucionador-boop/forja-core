@@ -18,16 +18,16 @@ def utc_now() -> str:
 
 def append_audit_event(event_type: str, actor: str, payload: dict[str, Any], risk: str = "low") -> dict[str, Any]:
     settings.audit_dir.mkdir(parents=True, exist_ok=True)
-    event = {
-        "id": str(uuid.uuid4()),
-        "timestamp": utc_now(),
-        "event_type": event_type,
-        "actor": actor,
-        "risk": risk,
-        "payload": payload,
-    }
     path: Path = settings.audit_dir / "events.jsonl"
     with _audit_lock:
+        event = {
+            "id": str(uuid.uuid4()),
+            "timestamp": utc_now(),
+            "event_type": event_type,
+            "actor": actor,
+            "risk": risk,
+            "payload": payload,
+        }
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, ensure_ascii=False) + "\n")
     return event

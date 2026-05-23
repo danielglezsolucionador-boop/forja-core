@@ -111,7 +111,7 @@ function ActionButton({
   }
   return (
     <button className={className} type="button" onClick={onClick} disabled={loading}>
-      {loading ? "Refreshing..." : children}
+      {loading ? "Working..." : children}
     </button>
   );
 }

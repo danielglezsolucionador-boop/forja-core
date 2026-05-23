@@ -1,4 +1,5 @@
 export const API_URL = import.meta.env.VITE_FORJA_API_URL ?? "https://forja-core.onrender.com";
+const REQUEST_TIMEOUT_MS = 15000;
 
 export type HealthResponse = {
   status: string;
@@ -217,26 +218,47 @@ export type CreatorConsoleState = {
 };
 
 export async function fetchJson<T>(path: string, token?: string): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  return withTimeout(async (signal) => {
+    const response = await fetch(`${API_URL}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    return response.json() as Promise<T>;
   });
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
-  }
-  return response.json() as Promise<T>;
 }
 
 export async function postJson<T>(path: string, body: unknown, token?: string): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
+  return withTimeout(async (signal) => {
+    const response = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    return response.json() as Promise<T>;
   });
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+}
+
+async function withTimeout<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await operation(controller.signal);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Request timed out");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
-  return response.json() as Promise<T>;
 }
