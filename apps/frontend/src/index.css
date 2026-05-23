@@ -787,7 +787,7 @@ a {
   text-align: center;
   white-space: normal;
   overflow-wrap: anywhere;
-  word-break: break-word;
+  word-break: break-all;
 }
 
 .api-chip {
@@ -998,6 +998,10 @@ a {
   justify-content: space-between;
   align-items: flex-start;
   gap: 14px;
+  min-width: 0;
+}
+
+.card-topline > * {
   min-width: 0;
 }
 
