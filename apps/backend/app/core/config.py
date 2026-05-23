@@ -114,12 +114,30 @@ class Settings:
             warnings.append("database_url_not_configured")
         return warnings
 
+    def diagnostic_snapshot(self) -> dict[str, str | bool | int]:
+        return {
+            "app_env": self.app_env,
+            "debug": self.debug,
+            "database_enabled": self.database_enabled,
+            "database_ssl": self.database_ssl,
+            "db_auto_migrate": self.db_auto_migrate,
+            "cors_origins_count": len(self.cors_origins),
+            "frontend_origin_configured": bool(self.frontend_origin),
+            "jwt_secret_configured": bool(self.jwt_secret and self.jwt_secret != DEFAULT_JWT_SECRET),
+            "admin_password_configured": bool(self.admin_password and self.admin_password != DEFAULT_ADMIN_PASSWORD),
+            "base_dir": str(self.base_dir),
+        }
+
     def validate_runtime_safety(self) -> None:
+        print(f"STARTUP_RUNTIME_SAFETY_CHECK_BEGIN {self.diagnostic_snapshot()}", flush=True)
         if self.is_local:
+            print("RUNTIME_SAFETY_OK local_environment", flush=True)
             return
         blockers = self.security_warnings()
         if blockers:
+            print(f"RUNTIME_SAFETY_BLOCKED unsafe_non_local_configuration:{','.join(blockers)}", flush=True)
             raise RuntimeError(f"unsafe_non_local_configuration:{','.join(blockers)}")
+        print("RUNTIME_SAFETY_OK", flush=True)
 
 
 settings = Settings()
