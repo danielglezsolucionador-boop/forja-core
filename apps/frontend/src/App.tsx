@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { API_URL, fetchJson, HealthResponse, login, RuntimeStatus } from "./lib/api";
-import { StatusCard } from "./components/StatusCard";
+import { API_URL, fetchJson, HealthResponse, RuntimeStatus } from "./lib/api";
 
 type LoadState<T> = {
   data: T | null;
   error: string | null;
   loading: boolean;
 };
+
+type Tone = "green" | "amber" | "red" | "steel";
 
 function useLoad<T>(loader: () => Promise<T>, deps: unknown[]): LoadState<T> {
   const [state, setState] = useState<LoadState<T>>({ data: null, error: null, loading: true });
@@ -29,104 +30,214 @@ function useLoad<T>(loader: () => Promise<T>, deps: unknown[]): LoadState<T> {
   return state;
 }
 
-export default function App() {
-  const [token, setToken] = useState<string | null>(null);
-  const [loginError, setLoginError] = useState<string | null>(null);
+function toneForStatus(status?: string | boolean): Tone {
+  if (status === true) return "green";
+  if (status === false) return "amber";
+  const value = String(status ?? "").toLowerCase();
+  if (["ok", "active", "available", "true", "connection_ok"].includes(value)) return "green";
+  if (["degraded", "disabled", "not_started_by_design", "blocked_provider_disabled", "local_queue"].includes(value)) return "amber";
+  if (["error", "failed", "critical", "unavailable", "false"].includes(value)) return "red";
+  return "steel";
+}
 
+function display(value: unknown, fallback = "Not reported") {
+  if (value === undefined || value === null || value === "") return fallback;
+  return String(value);
+}
+
+function StatusBadge({ value, tone }: { value: string | boolean | number; tone?: Tone }) {
+  const resolvedTone = tone ?? toneForStatus(typeof value === "number" ? "ok" : value);
+  return <span className={`status-badge ${resolvedTone}`}>{String(value)}</span>;
+}
+
+function LoadingBars() {
+  return (
+    <div className="loading-bars" aria-label="Loading">
+      <span />
+      <span />
+      <span />
+    </div>
+  );
+}
+
+function ForgeCard({
+  eyebrow,
+  title,
+  value,
+  tone,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  value: string | number | boolean;
+  tone?: Tone;
+  children?: React.ReactNode;
+}) {
+  return (
+    <section className="forge-card">
+      <div className="card-topline">
+        <span>{eyebrow}</span>
+        <StatusBadge value={value} tone={tone} />
+      </div>
+      <h3>{title}</h3>
+      {children ? <div className="card-body">{children}</div> : null}
+    </section>
+  );
+}
+
+function ErrorPanel({ label, error }: { label: string; error: string }) {
+  return (
+    <section className="error-panel">
+      <strong>{label}</strong>
+      <span>{error}</span>
+    </section>
+  );
+}
+
+export default function App() {
   const health = useLoad<HealthResponse>(() => fetchJson("/health"), []);
   const runtime = useLoad<RuntimeStatus>(() => fetchJson("/runtime/status"), []);
-  const audit = useLoad<unknown[]>(() => (token ? fetchJson("/audit/events", token) : Promise.resolve([])), [token]);
 
   const modules = useMemo(() => Object.entries(health.data?.modules ?? {}), [health.data]);
-
-  async function handleLocalLogin() {
-    setLoginError(null);
-    try {
-      const accessToken = await login("forja_admin", "forja_local_admin_change_me");
-      setToken(accessToken);
-    } catch (error) {
-      setLoginError(error instanceof Error ? error.message : "Login failed");
-    }
-  }
+  const providers = runtime.data?.providers ?? [];
+  const securityWarnings = runtime.data?.security_warnings ?? health.data?.security_warnings ?? [];
+  const database = runtime.data?.database ?? health.data?.database;
+  const backendReady = health.data?.status === "ok" && runtime.data?.status === "active";
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-950/95">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="text-xs font-bold uppercase tracking-[0.35em] text-blue-300">FORJA</div>
-            <h1 className="mt-2 text-3xl font-black tracking-tight">Operational Factory Console</h1>
-          </div>
-          <div className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-300">
-            API: <span className="font-semibold text-slate-100">{API_URL}</span>
-          </div>
-        </div>
-      </header>
-
-      <section className="mx-auto max-w-7xl px-6 py-8">
-        <div className="grid gap-4 md:grid-cols-4">
-          <StatusCard label="Backend" value={health.loading ? "checking" : health.data?.status ?? "offline"} tone={health.data?.status === "ok" ? "green" : "red"}>
-            {health.error ?? `${health.data?.service ?? "-"} ${health.data?.version ?? ""}`}
-          </StatusCard>
-          <StatusCard label="Runtime" value={runtime.data?.status ?? (runtime.loading ? "checking" : "offline")} tone={runtime.data?.busy_loop ? "red" : "green"}>
-            busy loop: {runtime.data ? String(runtime.data.busy_loop) : "-"}
-          </StatusCard>
-          <StatusCard label="Zero Write" value={runtime.data?.zero_write_policy ?? "-"} tone="amber">
-            Factory writes require human approval.
-          </StatusCard>
-          <StatusCard label="Audit Events" value={runtime.data?.audit_events ?? 0} tone="blue">
-            Auth required for detailed audit trail.
-          </StatusCard>
-        </div>
-
-        <div className="mt-8 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-          <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-5">
-            <h2 className="text-lg font-bold">Modules</h2>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {modules.map(([name, status]) => (
-                <div key={name} className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-950 p-3">
-                  <span className="text-sm font-semibold text-slate-300">{name}</span>
-                  <span className="text-xs font-bold uppercase tracking-wide text-blue-300">{status}</span>
-                </div>
-              ))}
-              {!health.loading && modules.length === 0 ? <div className="text-sm text-slate-400">No modules reported.</div> : null}
+    <main className="forge-shell">
+      <section className="hero">
+        <div className="hero-copy">
+          <div className="brand-row">
+            <div className="brand-mark">F</div>
+            <div>
+              <span>FORJA</span>
+              <strong>Enterprise Core Runtime</strong>
             </div>
-          </section>
-
-          <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-5">
-            <h2 className="text-lg font-bold">Local Auth</h2>
-            <p className="mt-2 text-sm text-slate-400">Use local bootstrap credentials only for local validation.</p>
-            <button onClick={handleLocalLogin} className="mt-4 rounded-md bg-blue-500 px-4 py-2 text-sm font-bold text-white hover:bg-blue-400">
-              Validate Local Login
-            </button>
-            <div className="mt-3 text-sm text-slate-300">{token ? "Authenticated locally." : loginError ?? "Not authenticated."}</div>
-          </section>
+          </div>
+          <h1>Controlled Intelligence Infrastructure</h1>
+          <p>Governance, runtime and execution core for AI systems. Built like a forge: heat contained, force directed, operations controlled.</p>
+          <div className="hero-actions">
+            <StatusBadge value={backendReady ? "cloud online" : "checking"} tone={backendReady ? "green" : "amber"} />
+            <span className="api-chip">{API_URL}</span>
+          </div>
         </div>
 
-        <div className="mt-8 grid gap-6 lg:grid-cols-2">
-          <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-5">
-            <h2 className="text-lg font-bold">Providers</h2>
-            <div className="mt-4 space-y-3">
-              {(runtime.data?.providers ?? []).map((provider) => (
-                <div key={provider.id} className="rounded-md border border-slate-800 bg-slate-950 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-semibold text-slate-200">{provider.id}</span>
-                    <span className="text-xs font-bold uppercase text-amber-300">{provider.status}</span>
-                  </div>
-                  <p className="mt-2 text-sm text-slate-400">{provider.reason}</p>
-                </div>
-              ))}
+        <aside className="core-panel">
+          <span className="panel-label">Runtime core</span>
+          <div className="core-ring">
+            <span />
+            <strong>{runtime.loading ? "..." : display(runtime.data?.status, "offline")}</strong>
+          </div>
+          <div className="core-grid">
+            <div>
+              <span>Environment</span>
+              <strong>{display(health.data?.environment ?? runtime.data?.environment)}</strong>
             </div>
-          </section>
-
-          <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-5">
-            <h2 className="text-lg font-bold">Audit Preview</h2>
-            <pre className="mt-4 max-h-72 overflow-auto rounded-md bg-slate-950 p-4 text-xs text-slate-300">
-              {JSON.stringify(audit.data ?? [], null, 2)}
-            </pre>
-          </section>
-        </div>
+            <div>
+              <span>Production</span>
+              <strong>{health.loading ? "checking" : display(health.data?.production_ready)}</strong>
+            </div>
+            <div>
+              <span>Busy loop</span>
+              <strong>{runtime.loading ? "checking" : display(runtime.data?.busy_loop)}</strong>
+            </div>
+            <div>
+              <span>Audit events</span>
+              <strong>{runtime.loading ? "checking" : display(runtime.data?.audit_events, "0")}</strong>
+            </div>
+          </div>
+        </aside>
       </section>
+
+      <section className="status-strip">
+        <ForgeCard eyebrow="Backend" title="Health Overview" value={health.loading ? "loading" : health.data?.status ?? "error"}>
+          {health.loading ? <LoadingBars /> : <p>{health.error ?? `${display(health.data?.service)} ${display(health.data?.version, "")}`}</p>}
+        </ForgeCard>
+        <ForgeCard eyebrow="Runtime" title="Execution State" value={runtime.loading ? "loading" : runtime.data?.status ?? "error"}>
+          {runtime.loading ? <LoadingBars /> : <p>{runtime.error ?? display(runtime.data?.runtime_loop)}</p>}
+        </ForgeCard>
+        <ForgeCard eyebrow="Database" title="Persistence Layer" value={database?.status ?? "not reported"}>
+          <p>{display(database?.reason)} · enabled: {display(database?.enabled)}</p>
+        </ForgeCard>
+      </section>
+
+      {(health.error || runtime.error) ? (
+        <section className="error-grid">
+          {health.error ? <ErrorPanel label="Health endpoint error" error={health.error} /> : null}
+          {runtime.error ? <ErrorPanel label="Runtime endpoint error" error={runtime.error} /> : null}
+        </section>
+      ) : null}
+
+      <section className="dashboard-grid">
+        <ForgeCard eyebrow="Governance" title="Human Control Layer" value={runtime.data?.human_in_the_loop ?? "not reported"}>
+          <p>Human approval remains part of sensitive execution paths. Zero-write policy: {display(runtime.data?.zero_write_policy)}.</p>
+        </ForgeCard>
+
+        <ForgeCard eyebrow="AI Pipeline" title="Provider Boundary" value={runtime.data?.ai_pipeline ?? health.data?.modules?.ai_pipeline ?? "not reported"}>
+          {providers.length ? (
+            <div className="provider-list">
+              {providers.map((provider) => (
+                <div key={provider.id}>
+                  <strong>{provider.id}</strong>
+                  <StatusBadge value={provider.status} />
+                  <p>{provider.reason}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p>No providers reported by runtime.</p>
+          )}
+        </ForgeCard>
+
+        <ForgeCard eyebrow="Factory" title="Execution Forge" value={health.data?.modules?.factory ?? "not reported"}>
+          <p>{runtime.data?.notes?.find((note) => note.toLowerCase().includes("factory")) ?? "Factory module not reported by runtime notes."}</p>
+        </ForgeCard>
+
+        <ForgeCard eyebrow="Workflow" title="Operational Flow" value={health.data?.modules?.workflows ?? runtime.data?.runtime_loop ?? "not reported"}>
+          <p>{runtime.data?.notes?.find((note) => note.toLowerCase().includes("background")) ?? "Workflow status is not directly reported by /health."}</p>
+        </ForgeCard>
+
+        <ForgeCard eyebrow="Audit" title="Traceability Ledger" value={runtime.data?.audit_events ?? "not reported"}>
+          <p>Detailed audit trail remains protected behind authenticated API routes. This panel only uses public runtime summary.</p>
+        </ForgeCard>
+
+        <ForgeCard eyebrow="Security" title="Readiness & Warnings" value={securityWarnings.length ? `${securityWarnings.length} warnings` : "clear"} tone={securityWarnings.length ? "amber" : "green"}>
+          {securityWarnings.length ? (
+            <ul className="warning-list">
+              {securityWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+            </ul>
+          ) : (
+            <p>No security warnings reported by cloud runtime.</p>
+          )}
+        </ForgeCard>
+      </section>
+
+      <section className="module-matrix">
+        <div className="section-heading">
+          <span>Subsystems</span>
+          <h2>Enterprise module matrix</h2>
+        </div>
+        {health.loading ? (
+          <LoadingBars />
+        ) : modules.length ? (
+          <div className="module-grid">
+            {modules.map(([name, status]) => (
+              <div key={name} className="module-row">
+                <span>{name}</span>
+                <StatusBadge value={status} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">No modules reported by /health.</div>
+        )}
+      </section>
+
+      <footer className="technical-footer">
+        <span>Backend URL: {API_URL}</span>
+        <span>Endpoints: /health · /runtime/status</span>
+      </footer>
     </main>
   );
 }
