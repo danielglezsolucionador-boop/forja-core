@@ -1038,9 +1038,26 @@ a {
   }
 
   .creator-console {
+    width: calc(100vw - 22px);
     max-width: calc(100vw - 22px);
+    margin-left: 11px;
+    margin-right: 11px;
     border-radius: 28px;
     padding: 18px;
+  }
+
+  .creator-layout,
+  .creator-grid,
+  .command-console-panel,
+  .pipeline-panel,
+  .creator-card {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .creator-console .card-topline {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .creator-console .section-heading h2 {
