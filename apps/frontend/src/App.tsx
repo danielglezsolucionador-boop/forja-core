@@ -698,16 +698,82 @@ function useHashRoute() {
 }
 
 function HumanConsolePreview() {
-  const quickActions = ["Crear una app", "Diseñar una API", "Armar un dashboard", "Crear workflow", "Integrar sistema"];
-  const plan = [
-    ["01", "Entender intención", "FORJA clasifica el pedido y separa alcance, riesgos y entregables."],
-    ["02", "Proponer arquitectura", "Muestra módulos, pantallas, API y límites sin ejecutar cambios reales."],
-    ["03", "Validar control humano", "Governance permanece activo antes de cualquier construcción futura."],
-    ["04", "Preparar siguiente fase", "El CEO aprueba o ajusta el blueprint antes de implementar."]
+  type HumanVisualState = "IDLE" | "THINKING" | "PLANNING" | "ANALYZING" | "BUILDING" | "WAITING_APPROVAL" | "READY";
+  const defaultCommand = "Quiero construir un dashboard ejecutivo para ver ventas, margen, alertas y tareas pendientes por equipo.";
+  const [commandText, setCommandText] = useState(defaultCommand);
+  const [visualState, setVisualState] = useState<HumanVisualState>("READY");
+  const [isFocused, setIsFocused] = useState(false);
+  const quickActions = [
+    ["Crear una app", "Quiero construir una app interna para coordinar operaciones, usuarios, reportes y aprobaciones."],
+    ["Diseñar una API", "Quiero diseñar una API segura para integrar clientes, pagos, permisos y auditoría."],
+    ["Armar un dashboard", defaultCommand],
+    ["Crear workflow", "Quiero crear un workflow operativo con pasos, responsables, alertas y control humano."],
+    ["Integrar sistema", "Quiero integrar mi sistema actual con un servicio externo sin romper seguridad ni trazabilidad."]
   ];
+  const states: Array<[HumanVisualState, string, string]> = [
+    ["IDLE", "En reposo", "FORJA espera una intención."],
+    ["THINKING", "Escuchando", "La cabina enfoca el pedido."],
+    ["PLANNING", "Planeando", "Aparece una estrategia modular."],
+    ["ANALYZING", "Analizando", "Se separan alcance y riesgos."],
+    ["BUILDING", "Modelando", "Se simula la construcción visual."],
+    ["WAITING_APPROVAL", "Control humano", "Nada avanza sin aprobación."],
+    ["READY", "Listo", "Plan visual preparado."]
+  ];
+  const plan = [
+    ["01", "Intención humana", "FORJA traduce el pedido en objetivo, contexto, entregables y restricciones."],
+    ["02", "Mapa de sistema", "Propone módulos, pantallas, datos, API y puntos de integración."],
+    ["03", "Estrategia controlada", "Ordena riesgos, dependencias y decisiones que requieren control humano."],
+    ["04", "Blueprint listo", "Deja una ruta clara para aprobación futura, sin ejecutar construcción real."]
+  ];
+  const activeState = states.find(([state]) => state === visualState) ?? states[0];
+
+  const handleCommandChange = (nextCommand: string) => {
+    setCommandText(nextCommand);
+    setIsFocused(true);
+    setVisualState(nextCommand.trim() ? "THINKING" : "IDLE");
+  };
+
+  const handleCommandFocus = () => {
+    setIsFocused(true);
+    if (commandText.trim()) {
+      setVisualState("THINKING");
+    }
+  };
+
+  useEffect(() => {
+    const hasIntent = commandText.trim().length > 0;
+    if (!hasIntent) {
+      setVisualState("IDLE");
+      return;
+    }
+    if (!isFocused) return;
+    setVisualState("THINKING");
+    const planningTimer = window.setTimeout(() => setVisualState("PLANNING"), 420);
+    const analyzingTimer = window.setTimeout(() => setVisualState("ANALYZING"), 1150);
+    return () => {
+      window.clearTimeout(planningTimer);
+      window.clearTimeout(analyzingTimer);
+    };
+  }, [commandText, isFocused]);
+
+  const chooseQuickAction = (nextCommand: string) => {
+    setCommandText(nextCommand);
+    setIsFocused(true);
+    setVisualState("THINKING");
+  };
+
+  const simulateVisualPlan = () => {
+    if (!commandText.trim()) {
+      setVisualState("IDLE");
+      return;
+    }
+    setVisualState("BUILDING");
+    window.setTimeout(() => setVisualState("WAITING_APPROVAL"), 760);
+    window.setTimeout(() => setVisualState("READY"), 1650);
+  };
 
   return (
-    <main className="human-preview-shell">
+    <main className={`human-preview-shell state-${visualState.toLowerCase()}`}>
       <nav className="human-preview-nav" aria-label="Navegación preview">
         <a className="human-preview-brand" href="#dashboard" aria-label="Volver al dashboard técnico">
           <span>F</span>
@@ -731,31 +797,60 @@ function HumanConsolePreview() {
         </div>
 
         <section className="human-command-panel" aria-label="Entrada principal de petición">
-          <label htmlFor="human-preview-command">¿Qué quieres construir?</label>
-          <textarea
-            id="human-preview-command"
-            readOnly
-            value="Quiero construir un dashboard ejecutivo para ver ventas, margen, alertas y tareas pendientes por equipo."
-          />
+          <div className="human-command-topline">
+            <label htmlFor="human-preview-command">¿Qué quieres construir?</label>
+            <span>{activeState[1]}</span>
+          </div>
+          <div className="human-input-orbit">
+            <textarea
+              id="human-preview-command"
+              value={commandText}
+              onChange={(event) => handleCommandChange(event.target.value)}
+              onFocus={handleCommandFocus}
+              onBlur={() => setIsFocused(false)}
+              placeholder="Describe lo que FORJA debe construir contigo..."
+            />
+          </div>
+          <div className="human-state-console" aria-label="Estados visuales de FORJA" aria-live="polite">
+            <div className="human-state-pulse" aria-hidden="true">
+              <span />
+            </div>
+            <div>
+              <strong>{activeState[1]}</strong>
+              <p>{activeState[2]}</p>
+            </div>
+          </div>
           <div className="human-quick-actions" aria-label="Acciones rápidas">
-            {quickActions.map((action) => (
-              <button type="button" key={action}>{action}</button>
+            {quickActions.map(([action, nextCommand]) => (
+              <button type="button" key={action} onClick={() => chooseQuickAction(nextCommand)}>{action}</button>
             ))}
           </div>
-          <button className="human-primary-button" type="button">Generar plan visual</button>
+          <button className="human-primary-button" type="button" onClick={simulateVisualPlan}>Generar plan visual</button>
         </section>
+      </section>
+
+      <section className="human-thinking-rail" aria-label="Flujo visual de pensamiento">
+        {states.map(([state, label]) => (
+          <span key={state} className={state === visualState ? "active" : ""}>{label}</span>
+        ))}
       </section>
 
       <section className="human-preview-grid">
         <article className="human-response-card">
           <span className="human-eyebrow">Respuesta ejemplo</span>
-          <h2>Entendido. FORJA lo trataría como un dashboard ejecutivo.</h2>
+          <h2>FORJA organiza la intención como una estrategia de construcción.</h2>
           <p>
-            Prepararía una vista principal, métricas críticas, alertas de operación y un flujo de revisión humana antes de cualquier ejecución real.
+            Detecta el tipo de sistema, separa decisiones humanas, propone una ruta y mantiene la ejecución real apagada hasta aprobación futura.
           </p>
+          <div className="human-architecture-preview" aria-label="Arquitectura sugerida visual">
+            <span>Entrada humana</span>
+            <span>Blueprint</span>
+            <span>Control</span>
+            <span>Salida revisable</span>
+          </div>
           <div className="human-classification">
-            <span>Tipo: dashboard</span>
-            <span>Riesgo: medio</span>
+            <span>Estado: {activeState[1]}</span>
+            <span>Riesgo: controlado</span>
             <span>Modo: blueprint</span>
           </div>
         </article>
