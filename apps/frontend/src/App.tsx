@@ -685,7 +685,111 @@ function DetailModal({ panel, onClose }: { panel: DetailPanel; onClose: () => vo
   );
 }
 
-export default function App() {
+function useHashRoute() {
+  const [hash, setHash] = useState(() => window.location.hash);
+
+  useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  return hash;
+}
+
+function HumanConsolePreview() {
+  const quickActions = ["Crear una app", "Diseñar una API", "Armar un dashboard", "Crear workflow", "Integrar sistema"];
+  const plan = [
+    ["01", "Entender intención", "FORJA clasifica el pedido y separa alcance, riesgos y entregables."],
+    ["02", "Proponer arquitectura", "Muestra módulos, pantallas, API y límites sin ejecutar cambios reales."],
+    ["03", "Validar control humano", "Governance permanece activo antes de cualquier construcción futura."],
+    ["04", "Preparar siguiente fase", "El CEO aprueba o ajusta el blueprint antes de implementar."]
+  ];
+
+  return (
+    <main className="human-preview-shell">
+      <nav className="human-preview-nav" aria-label="Navegación preview">
+        <a className="human-preview-brand" href="#dashboard" aria-label="Volver al dashboard técnico">
+          <span>F</span>
+          <strong>FORJA</strong>
+        </a>
+        <a className="human-preview-back" href="#dashboard">Volver al dashboard actual</a>
+      </nav>
+
+      <section className="human-hero" id="human-console-preview">
+        <div className="human-hero-copy">
+          <span className="human-eyebrow">Human Console Preview</span>
+          <h1>Pídele a FORJA que construya.</h1>
+          <p>
+            Una cabina humana para pedir una app, API, dashboard, módulo, workflow o integración con poder controlado y revisión antes de ejecutar.
+          </p>
+          <div className="human-trust-row">
+            <span>Preview visual</span>
+            <span>Sin ejecución real</span>
+            <span>Control humano activo</span>
+          </div>
+        </div>
+
+        <section className="human-command-panel" aria-label="Entrada principal de petición">
+          <label htmlFor="human-preview-command">¿Qué quieres construir?</label>
+          <textarea
+            id="human-preview-command"
+            readOnly
+            value="Quiero construir un dashboard ejecutivo para ver ventas, margen, alertas y tareas pendientes por equipo."
+          />
+          <div className="human-quick-actions" aria-label="Acciones rápidas">
+            {quickActions.map((action) => (
+              <button type="button" key={action}>{action}</button>
+            ))}
+          </div>
+          <button className="human-primary-button" type="button">Generar plan visual</button>
+        </section>
+      </section>
+
+      <section className="human-preview-grid">
+        <article className="human-response-card">
+          <span className="human-eyebrow">Respuesta ejemplo</span>
+          <h2>Entendido. FORJA lo trataría como un dashboard ejecutivo.</h2>
+          <p>
+            Prepararía una vista principal, métricas críticas, alertas de operación y un flujo de revisión humana antes de cualquier ejecución real.
+          </p>
+          <div className="human-classification">
+            <span>Tipo: dashboard</span>
+            <span>Riesgo: medio</span>
+            <span>Modo: blueprint</span>
+          </div>
+        </article>
+
+        <article className="human-plan-card">
+          <span className="human-eyebrow">Plan generado ejemplo</span>
+          <div className="human-plan-list">
+            {plan.map(([number, title, body]) => (
+              <div className="human-plan-step" key={number}>
+                <span>{number}</span>
+                <div>
+                  <strong>{title}</strong>
+                  <p>{body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section className="human-technical-drawer">
+        <details>
+          <summary>Panel técnico oculto para el CEO</summary>
+          <div>
+            <p>Runtime, providers, audit stream, output manager, capability system y execution logs quedan detrás de esta capa para no dominar la experiencia principal.</p>
+            <span>Esta preview no cambia backend, governance, execution engine, output manager ni capability system.</span>
+          </div>
+        </details>
+      </section>
+    </main>
+  );
+}
+
+function TechnicalDashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [creatorRefreshKey, setCreatorRefreshKey] = useState(0);
   const [lastRefresh, setLastRefresh] = useState("Initial sync");
@@ -969,6 +1073,7 @@ export default function App() {
           </div>
           <div className="command-bar" aria-label="Runtime actions">
             <ActionButton onClick={refreshStatus} loading={refreshing}>Refresh status</ActionButton>
+            <a className="forge-button ghost" href="#human-console-preview">Human Console Preview</a>
             <ActionButton variant="ghost" href={API_URL}>Ver backend</ActionButton>
             <ActionButton variant="ghost" href={`${API_URL}/runtime/status`}>Ver runtime</ActionButton>
             <ActionButton variant="ghost" href={`${API_URL}/health`}>Ver health</ActionButton>
@@ -1139,4 +1244,9 @@ export default function App() {
       {panel ? <DetailModal panel={panel} onClose={() => setPanel(null)} /> : null}
     </main>
   );
+}
+
+export default function App() {
+  const hashRoute = useHashRoute();
+  return hashRoute === "#human-console-preview" ? <HumanConsolePreview /> : <TechnicalDashboard />;
 }
