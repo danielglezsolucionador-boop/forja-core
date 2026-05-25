@@ -53,6 +53,28 @@ export type IntentInterpretation = {
   confidence: number;
   timestamp: string;
 };
+export type ProjectBlueprint = {
+  blueprint_id: string;
+  source_request_id: string;
+  sender: IntentSender;
+  response_target: "ceo" | "cerebro" | "seo" | "system";
+  project_name: string;
+  project_type: IntentInterpretation["request_type"];
+  domain: IntentInterpretation["domain"];
+  objective: string;
+  stack_recommendation: string[];
+  suggested_structure: string[];
+  modules: string[];
+  screens: string[];
+  endpoints: Array<{ method: string; path: string; purpose: string }>;
+  data_model: Array<{ name: string; fields: string[]; purpose: string }>;
+  risks: Array<{ level: IntentInterpretation["risk_level"]; title: string; mitigation: string }>;
+  risk_level: IntentInterpretation["risk_level"];
+  approval_required: boolean;
+  construction_steps: string[];
+  validation_criteria: string[];
+  created_at: string;
+};
 export type CapabilityStatus = "pending" | "approved" | "rejected" | "unavailable";
 export type CapabilityKind =
   | "more_context"

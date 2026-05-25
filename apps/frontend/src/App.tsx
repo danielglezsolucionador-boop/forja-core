@@ -13,6 +13,7 @@ import {
   HealthResponse,
   IntentInterpretation,
   postJson,
+  ProjectBlueprint,
   RuntimeStatus,
 } from "./lib/api";
 
@@ -706,6 +707,9 @@ function HumanConsolePreview() {
   const [interpretation, setInterpretation] = useState<IntentInterpretation | null>(null);
   const [interpretationError, setInterpretationError] = useState<string | null>(null);
   const [interpreting, setInterpreting] = useState(false);
+  const [blueprint, setBlueprint] = useState<ProjectBlueprint | null>(null);
+  const [blueprintError, setBlueprintError] = useState<string | null>(null);
+  const [blueprinting, setBlueprinting] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const quickActions = [
     ["Crear una app", "Quiero construir una app interna para coordinar operaciones, usuarios, reportes y aprobaciones."],
@@ -766,11 +770,17 @@ function HumanConsolePreview() {
       setInterpretation(null);
       setInterpretationError(null);
       setInterpreting(false);
+      setBlueprint(null);
+      setBlueprintError(null);
+      setBlueprinting(false);
       return;
     }
     let active = true;
     setInterpreting(true);
     setInterpretationError(null);
+    setBlueprint(null);
+    setBlueprintError(null);
+    setBlueprinting(false);
     const timer = window.setTimeout(() => {
       postJson<IntentInterpretation>("/intent/interpret", { sender: "ceo", recipient: "forja", input })
         .then((result) => {
@@ -781,6 +791,7 @@ function HumanConsolePreview() {
           if (!active) return;
           setInterpretation(null);
           setInterpretationError(error.message);
+          setBlueprint(null);
         })
         .finally(() => {
           if (active) {
@@ -793,6 +804,36 @@ function HumanConsolePreview() {
       window.clearTimeout(timer);
     };
   }, [commandText]);
+
+  useEffect(() => {
+    if (!interpretation) {
+      setBlueprint(null);
+      setBlueprintError(null);
+      setBlueprinting(false);
+      return;
+    }
+    let active = true;
+    setBlueprinting(true);
+    setBlueprintError(null);
+    postJson<ProjectBlueprint>("/blueprint/generate", { interpretation })
+      .then((result) => {
+        if (!active) return;
+        setBlueprint(result);
+      })
+      .catch((error: Error) => {
+        if (!active) return;
+        setBlueprint(null);
+        setBlueprintError(error.message);
+      })
+      .finally(() => {
+        if (active) {
+          setBlueprinting(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [interpretation]);
 
   const chooseQuickAction = (nextCommand: string) => {
     setCommandText(nextCommand);
@@ -815,6 +856,19 @@ function HumanConsolePreview() {
   const intentRisk = interpretationError ? "ERROR" : interpretation?.risk_level ?? "CONTROLLED";
   const intentApproval = interpretation ? (interpretation.requires_approval ? "REQUIRED" : "NOT REQUIRED") : "PENDING";
   const intentTarget = interpretation?.response_target.toUpperCase() ?? "CEO";
+  const blueprintTitle = blueprint?.project_name ?? (blueprinting ? "Preparando blueprint tecnico." : "FORJA organiza la intencion como una estrategia de construccion.");
+  const blueprintObjective = blueprintError
+    ? `Blueprint error: ${blueprintError}`
+    : blueprint?.objective ?? "Detecta el tipo de sistema, separa decisiones humanas, propone una ruta y mantiene la ejecucion real apagada hasta aprobacion futura.";
+  const structurePreview = blueprint?.suggested_structure.slice(0, 4) ?? ["Entrada humana", "Blueprint", "Control", "Salida revisable"];
+  const constructionPlan = blueprint?.construction_steps.slice(0, 4).map((step, index) => [
+    String(index + 1).padStart(2, "0"),
+    index === 0 ? "Alcance" : index === 1 ? "Estructura" : index === 2 ? "Aprobacion" : "Validacion",
+    step,
+  ]) ?? plan;
+  const blueprintModules = blueprint?.modules.slice(0, 4) ?? [];
+  const blueprintRisks = blueprint?.risks.slice(0, 2).map((risk) => `${risk.level}: ${risk.title}`) ?? [];
+  const blueprintCriteria = blueprint?.validation_criteria.slice(0, 2) ?? [];
 
   return (
     <main className={`human-preview-shell state-${visualState.toLowerCase()}`}>
@@ -893,16 +947,13 @@ function HumanConsolePreview() {
 
       <section className="human-preview-grid">
         <article className="human-response-card">
-          <span className="human-eyebrow">Síntesis operativa</span>
-          <h2>FORJA organiza la intención como una estrategia de construcción.</h2>
+          <span className="human-eyebrow">Blueprint tecnico</span>
+          <h2>{blueprintTitle}</h2>
           <p>
-            Detecta el tipo de sistema, separa decisiones humanas, propone una ruta y mantiene la ejecución real apagada hasta aprobación futura.
+            {blueprintObjective}
           </p>
           <div className="human-architecture-preview" aria-label="Arquitectura sugerida visual">
-            <span>Entrada humana</span>
-            <span>Blueprint</span>
-            <span>Control</span>
-            <span>Salida revisable</span>
+            {structurePreview.map((item) => <span key={item}>{item}</span>)}
           </div>
           <div className="human-classification">
             <span>TYPE: {intentType}</span>
@@ -916,7 +967,7 @@ function HumanConsolePreview() {
         <article className="human-plan-card">
           <span className="human-eyebrow">Secuencia de construcción</span>
           <div className="human-plan-list">
-            {plan.map(([number, title, body]) => (
+            {constructionPlan.map(([number, title, body]) => (
               <div className="human-plan-step" key={number}>
                 <span>{number}</span>
                 <div>
@@ -926,6 +977,19 @@ function HumanConsolePreview() {
               </div>
             ))}
           </div>
+          {blueprint ? (
+            <>
+              <div className="human-classification" aria-label="Modulos del blueprint">
+                {blueprintModules.map((module) => <span key={module}>MODULE: {module}</span>)}
+              </div>
+              <div className="human-classification" aria-label="Riesgos del blueprint">
+                {blueprintRisks.map((risk) => <span key={risk}>RISK NOTE: {risk}</span>)}
+              </div>
+              <div className="human-classification" aria-label="Criterios de validacion del blueprint">
+                {blueprintCriteria.map((criteria) => <span key={criteria}>VALIDATION: {criteria}</span>)}
+              </div>
+            </>
+          ) : null}
         </article>
       </section>
 
