@@ -784,19 +784,31 @@ function HumanConsolePreview() {
 
       <section className="human-hero" id="human-console-preview">
         <div className="human-hero-copy">
-          <span className="human-eyebrow">Human Console Preview</span>
+          <div className="human-operational-field" aria-hidden="true">
+            <span className="human-orbit-node node-a" />
+            <span className="human-orbit-node node-b" />
+            <span className="human-orbit-node node-c" />
+            <span className="human-orbit-line line-a" />
+            <span className="human-orbit-line line-b" />
+          </div>
+          <span className="human-eyebrow">Núcleo operativo</span>
           <h1>Pídele a FORJA que construya.</h1>
           <p>
-            Una cabina humana para pedir una app, API, dashboard, módulo, workflow o integración con poder controlado y revisión antes de ejecutar.
+            Sistema operativo de inteligencia para convertir intención humana en arquitectura revisable.
           </p>
-          <div className="human-trust-row">
-            <span>Preview visual</span>
-            <span>Sin ejecución real</span>
-            <span>Control humano activo</span>
+          <div className="human-ops-status" aria-label="Estado operacional visual">
+            <span><i />Núcleo activo</span>
+            <span><i />Ejecución bloqueada</span>
+            <span><i />Control humano</span>
           </div>
         </div>
 
         <section className="human-command-panel" aria-label="Entrada principal de petición">
+          <div className="human-command-telemetry" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
           <div className="human-command-topline">
             <label htmlFor="human-preview-command">¿Qué quieres construir?</label>
             <span>{activeState[1]}</span>
@@ -837,7 +849,7 @@ function HumanConsolePreview() {
 
       <section className="human-preview-grid">
         <article className="human-response-card">
-          <span className="human-eyebrow">Respuesta ejemplo</span>
+          <span className="human-eyebrow">Síntesis operativa</span>
           <h2>FORJA organiza la intención como una estrategia de construcción.</h2>
           <p>
             Detecta el tipo de sistema, separa decisiones humanas, propone una ruta y mantiene la ejecución real apagada hasta aprobación futura.
@@ -856,7 +868,7 @@ function HumanConsolePreview() {
         </article>
 
         <article className="human-plan-card">
-          <span className="human-eyebrow">Plan generado ejemplo</span>
+          <span className="human-eyebrow">Secuencia de construcción</span>
           <div className="human-plan-list">
             {plan.map(([number, title, body]) => (
               <div className="human-plan-step" key={number}>
