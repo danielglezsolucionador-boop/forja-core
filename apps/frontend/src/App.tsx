@@ -11,6 +11,7 @@ import {
   CreatorSender,
   fetchJson,
   HealthResponse,
+  IntentInterpretation,
   postJson,
   RuntimeStatus,
 } from "./lib/api";
@@ -702,6 +703,9 @@ function HumanConsolePreview() {
   const defaultCommand = "Quiero construir un dashboard ejecutivo para ver ventas, margen, alertas y tareas pendientes por equipo.";
   const [commandText, setCommandText] = useState(defaultCommand);
   const [visualState, setVisualState] = useState<HumanVisualState>("READY");
+  const [interpretation, setInterpretation] = useState<IntentInterpretation | null>(null);
+  const [interpretationError, setInterpretationError] = useState<string | null>(null);
+  const [interpreting, setInterpreting] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const quickActions = [
     ["Crear una app", "Quiero construir una app interna para coordinar operaciones, usuarios, reportes y aprobaciones."],
@@ -756,6 +760,40 @@ function HumanConsolePreview() {
     };
   }, [commandText, isFocused]);
 
+  useEffect(() => {
+    const input = commandText.trim();
+    if (!input) {
+      setInterpretation(null);
+      setInterpretationError(null);
+      setInterpreting(false);
+      return;
+    }
+    let active = true;
+    setInterpreting(true);
+    setInterpretationError(null);
+    const timer = window.setTimeout(() => {
+      postJson<IntentInterpretation>("/intent/interpret", { sender: "ceo", recipient: "forja", input })
+        .then((result) => {
+          if (!active) return;
+          setInterpretation(result);
+        })
+        .catch((error: Error) => {
+          if (!active) return;
+          setInterpretation(null);
+          setInterpretationError(error.message);
+        })
+        .finally(() => {
+          if (active) {
+            setInterpreting(false);
+          }
+        });
+    }, 420);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [commandText]);
+
   const chooseQuickAction = (nextCommand: string) => {
     setCommandText(nextCommand);
     setIsFocused(true);
@@ -771,6 +809,12 @@ function HumanConsolePreview() {
     window.setTimeout(() => setVisualState("WAITING_APPROVAL"), 760);
     window.setTimeout(() => setVisualState("READY"), 1650);
   };
+
+  const intentType = interpretation?.request_type.toUpperCase() ?? (interpreting ? "READING" : "PENDING");
+  const intentDomain = interpretation?.domain.toUpperCase() ?? "GENERAL";
+  const intentRisk = interpretationError ? "ERROR" : interpretation?.risk_level ?? "CONTROLLED";
+  const intentApproval = interpretation ? (interpretation.requires_approval ? "REQUIRED" : "NOT REQUIRED") : "PENDING";
+  const intentTarget = interpretation?.response_target.toUpperCase() ?? "CEO";
 
   return (
     <main className={`human-preview-shell state-${visualState.toLowerCase()}`}>
@@ -861,9 +905,11 @@ function HumanConsolePreview() {
             <span>Salida revisable</span>
           </div>
           <div className="human-classification">
-            <span>Estado: {activeState[1]}</span>
-            <span>Riesgo: controlado</span>
-            <span>Modo: blueprint</span>
+            <span>TYPE: {intentType}</span>
+            <span>DOMAIN: {intentDomain}</span>
+            <span>RISK: {intentRisk}</span>
+            <span>APPROVAL: {intentApproval}</span>
+            <span>TARGET: {intentTarget}</span>
           </div>
         </article>
 

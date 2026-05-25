@@ -37,6 +37,22 @@ export type RuntimeStatus = {
 
 export type CreatorSender = "user" | "cerebro" | "seo" | "system";
 export type CreatorDecision = "approve" | "reject" | "hold";
+export type IntentSender = "ceo" | "cerebro" | "user" | "seo" | "system";
+export type IntentInterpretation = {
+  sender: IntentSender;
+  recipient: "forja";
+  request_type: "app" | "api" | "dashboard" | "module" | "workflow" | "integration" | "repair" | "upgrade" | "analysis" | "document";
+  domain: "inventario" | "ventas" | "clientes" | "financiero" | "contable" | "tributario" | "WhatsApp" | "ecommerce" | "logistica" | "RRHH" | "general";
+  objective: string;
+  suggested_modules: string[];
+  risk_level: "LOW" | "MEDIUM" | "HIGH";
+  requires_approval: boolean;
+  response_target: "ceo" | "cerebro" | "seo" | "system";
+  raw_input: string;
+  normalized_input: string;
+  confidence: number;
+  timestamp: string;
+};
 export type CapabilityStatus = "pending" | "approved" | "rejected" | "unavailable";
 export type CapabilityKind =
   | "more_context"
