@@ -75,6 +75,27 @@ export type ProjectBlueprint = {
   validation_criteria: string[];
   created_at: string;
 };
+export type ProjectWorkspace = {
+  workspace_id: string;
+  request_id: string;
+  blueprint_id: string;
+  sender: IntentSender;
+  response_target: "ceo" | "cerebro" | "seo" | "system";
+  project_name: string;
+  project_type: IntentInterpretation["request_type"];
+  domain: IntentInterpretation["domain"];
+  risk_level: IntentInterpretation["risk_level"];
+  approval_required: boolean;
+  approval_status: "not_required" | "pending";
+  status: "created" | "blocked";
+  logical_path: string;
+  directories: string[];
+  files: string[];
+  workspace_isolated: boolean;
+  complex_generation_allowed: boolean;
+  timeline: Array<{ timestamp: string; event: string; detail: string }>;
+  created_at: string;
+};
 export type CapabilityStatus = "pending" | "approved" | "rejected" | "unavailable";
 export type CapabilityKind =
   | "more_context"

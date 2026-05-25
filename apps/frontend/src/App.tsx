@@ -14,6 +14,7 @@ import {
   IntentInterpretation,
   postJson,
   ProjectBlueprint,
+  ProjectWorkspace,
   RuntimeStatus,
 } from "./lib/api";
 
@@ -710,6 +711,9 @@ function HumanConsolePreview() {
   const [blueprint, setBlueprint] = useState<ProjectBlueprint | null>(null);
   const [blueprintError, setBlueprintError] = useState<string | null>(null);
   const [blueprinting, setBlueprinting] = useState(false);
+  const [workspace, setWorkspace] = useState<ProjectWorkspace | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [workspacing, setWorkspacing] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const quickActions = [
     ["Crear una app", "Quiero construir una app interna para coordinar operaciones, usuarios, reportes y aprobaciones."],
@@ -773,6 +777,9 @@ function HumanConsolePreview() {
       setBlueprint(null);
       setBlueprintError(null);
       setBlueprinting(false);
+      setWorkspace(null);
+      setWorkspaceError(null);
+      setWorkspacing(false);
       return;
     }
     let active = true;
@@ -781,6 +788,9 @@ function HumanConsolePreview() {
     setBlueprint(null);
     setBlueprintError(null);
     setBlueprinting(false);
+    setWorkspace(null);
+    setWorkspaceError(null);
+    setWorkspacing(false);
     const timer = window.setTimeout(() => {
       postJson<IntentInterpretation>("/intent/interpret", { sender: "ceo", recipient: "forja", input })
         .then((result) => {
@@ -792,6 +802,7 @@ function HumanConsolePreview() {
           setInterpretation(null);
           setInterpretationError(error.message);
           setBlueprint(null);
+          setWorkspace(null);
         })
         .finally(() => {
           if (active) {
@@ -810,6 +821,9 @@ function HumanConsolePreview() {
       setBlueprint(null);
       setBlueprintError(null);
       setBlueprinting(false);
+      setWorkspace(null);
+      setWorkspaceError(null);
+      setWorkspacing(false);
       return;
     }
     let active = true;
@@ -824,6 +838,7 @@ function HumanConsolePreview() {
         if (!active) return;
         setBlueprint(null);
         setBlueprintError(error.message);
+        setWorkspace(null);
       })
       .finally(() => {
         if (active) {
@@ -834,6 +849,39 @@ function HumanConsolePreview() {
       active = false;
     };
   }, [interpretation]);
+
+  useEffect(() => {
+    if (!blueprint) {
+      setWorkspace(null);
+      setWorkspaceError(null);
+      setWorkspacing(false);
+      return;
+    }
+    let active = true;
+    setWorkspacing(true);
+    setWorkspaceError(null);
+    const timer = window.setTimeout(() => {
+      postJson<ProjectWorkspace>("/workspace/create", { blueprint })
+        .then((result) => {
+          if (!active) return;
+          setWorkspace(result);
+        })
+        .catch((error: Error) => {
+          if (!active) return;
+          setWorkspace(null);
+          setWorkspaceError(error.message);
+        })
+        .finally(() => {
+          if (active) {
+            setWorkspacing(false);
+          }
+        });
+    }, 420);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [blueprint]);
 
   const chooseQuickAction = (nextCommand: string) => {
     setCommandText(nextCommand);
@@ -869,6 +917,10 @@ function HumanConsolePreview() {
   const blueprintModules = blueprint?.modules.slice(0, 4) ?? [];
   const blueprintRisks = blueprint?.risks.slice(0, 2).map((risk) => `${risk.level}: ${risk.title}`) ?? [];
   const blueprintCriteria = blueprint?.validation_criteria.slice(0, 2) ?? [];
+  const workspaceState = workspaceError ? "BLOCKED" : workspace?.status.toUpperCase() ?? (workspacing ? "CREATING" : "PENDING");
+  const workspacePath = workspace?.logical_path ?? ".forja/workspaces/pending";
+  const workspaceDirs = workspace?.directories.slice(0, 6) ?? [];
+  const workspaceFiles = workspace?.files ?? [];
 
   return (
     <main className={`human-preview-shell state-${visualState.toLowerCase()}`}>
@@ -988,6 +1040,26 @@ function HumanConsolePreview() {
               <div className="human-classification" aria-label="Criterios de validacion del blueprint">
                 {blueprintCriteria.map((criteria) => <span key={criteria}>VALIDATION: {criteria}</span>)}
               </div>
+              <div className="human-classification" aria-label="Workspace generado">
+                <span>WORKSPACE: {workspaceState}</span>
+                <span>PATH: {workspacePath}</span>
+                {workspace ? <span>APPROVAL STATUS: {workspace.approval_status.toUpperCase()}</span> : null}
+              </div>
+              {workspace ? (
+                <>
+                  <div className="human-classification" aria-label="Carpetas del workspace">
+                    {workspaceDirs.map((directory) => <span key={directory}>FOLDER: {directory}/</span>)}
+                  </div>
+                  <div className="human-classification" aria-label="Archivos base del workspace">
+                    {workspaceFiles.map((file) => <span key={file}>FILE: {file}</span>)}
+                  </div>
+                </>
+              ) : null}
+              {workspaceError ? (
+                <div className="human-classification" aria-label="Workspace bloqueado">
+                  <span>WORKSPACE ERROR: {workspaceError}</span>
+                </div>
+              ) : null}
             </>
           ) : null}
         </article>
