@@ -35,6 +35,32 @@ export type RuntimeStatus = {
   notes: string[];
 };
 
+export type CapabilityContract = {
+  capability_id: string;
+  capability_type:
+    | "reasoning"
+    | "coding"
+    | "frontend_generation"
+    | "backend_generation"
+    | "debugging"
+    | "repair"
+    | "analysis"
+    | "summarization"
+    | "architecture"
+    | "documentation";
+  reasoning_level: "low" | "medium" | "high" | "extreme";
+  coding_level: "none" | "low" | "medium" | "high" | "expert";
+  speed_priority: "fast" | "balanced" | "maximum_quality";
+  cost_priority: "low_cost" | "balanced" | "premium_allowed";
+  context_size: number;
+  provider_constraints: string[];
+  requires_human_approval: boolean;
+  fallback_allowed: boolean;
+  execution_scope: string;
+  requested_by: "ceo" | "cerebro" | "user" | "seo" | "system";
+  timestamp: string;
+};
+
 export type CreatorSender = "user" | "cerebro" | "seo" | "system";
 export type CreatorDecision = "approve" | "reject" | "hold";
 export type IntentSender = "ceo" | "cerebro" | "user" | "seo" | "system";

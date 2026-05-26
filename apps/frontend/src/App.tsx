@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   API_URL,
+  CapabilityContract,
   CapabilityConsumption,
   CapabilityKind,
   CapabilityRequest,
@@ -702,6 +703,38 @@ function useHashRoute() {
   return hash;
 }
 
+function capabilityTypeForIntent(intent: IntentInterpretation): CapabilityContract["capability_type"] {
+  if (intent.request_type === "app" || intent.request_type === "dashboard") return "frontend_generation";
+  if (intent.request_type === "api") return "backend_generation";
+  if (intent.request_type === "module") return "coding";
+  if (intent.request_type === "repair") return "repair";
+  if (intent.request_type === "upgrade") return "debugging";
+  if (intent.request_type === "analysis") return "analysis";
+  if (intent.request_type === "document") return "documentation";
+  if (intent.request_type === "workflow" || intent.request_type === "integration") return "architecture";
+  return "reasoning";
+}
+
+function capabilityPayloadForIntent(intent: IntentInterpretation) {
+  const capabilityType = capabilityTypeForIntent(intent);
+  const isHighRisk = intent.risk_level === "HIGH" || capabilityType === "repair";
+  const isMediumRisk = intent.risk_level === "MEDIUM";
+  const needsCoding = ["coding", "frontend_generation", "backend_generation", "debugging", "repair"].includes(capabilityType);
+  return {
+    capability_type: capabilityType,
+    reasoning_level: isHighRisk ? "high" : isMediumRisk ? "medium" : "low",
+    coding_level: capabilityType === "repair" ? "expert" : needsCoding ? "high" : "none",
+    speed_priority: isHighRisk ? "maximum_quality" : "balanced",
+    cost_priority: "balanced",
+    context_size: isHighRisk ? 128000 : 64000,
+    provider_constraints: ["provider_agnostic", "no_model_selection", "no_api_execution"],
+    requires_human_approval: intent.requires_approval || isHighRisk || capabilityType === "architecture",
+    fallback_allowed: capabilityType !== "repair",
+    execution_scope: "human_console_capability_contract",
+    requested_by: intent.sender,
+  };
+}
+
 function HumanConsolePreview() {
   type HumanVisualState = "IDLE" | "INTERPRETING" | "PLANNING" | "AWAITING_APPROVAL" | "GENERATING" | "VALIDATING" | "COMPLETED" | "BLOCKED" | "FAILED";
   const defaultCommand = "Quiero construir un dashboard ejecutivo para ver ventas, margen, alertas y tareas pendientes por equipo.";
@@ -719,6 +752,9 @@ function HumanConsolePreview() {
   const [generation, setGeneration] = useState<ProjectGeneration | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [capabilityContract, setCapabilityContract] = useState<CapabilityContract | null>(null);
+  const [capabilityError, setCapabilityError] = useState<string | null>(null);
+  const [capabilitying, setCapabilitying] = useState(false);
   const [execution, setExecution] = useState<GovernedExecution | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [executing, setExecuting] = useState(false);
@@ -824,6 +860,9 @@ function HumanConsolePreview() {
       setGeneration(null);
       setGenerationError(null);
       setGenerating(false);
+      setCapabilityContract(null);
+      setCapabilityError(null);
+      setCapabilitying(false);
       setExecution(null);
       setExecutionError(null);
       setExecuting(false);
@@ -842,6 +881,9 @@ function HumanConsolePreview() {
     setGeneration(null);
     setGenerationError(null);
     setGenerating(false);
+    setCapabilityContract(null);
+    setCapabilityError(null);
+    setCapabilitying(false);
     setExecution(null);
     setExecutionError(null);
     setExecuting(true);
@@ -860,6 +902,8 @@ function HumanConsolePreview() {
           setBlueprint(null);
           setWorkspace(null);
           setGeneration(null);
+          setCapabilityContract(null);
+          setCapabilityError(error.message);
         })
         .finally(() => {
           if (active) {
@@ -919,6 +963,36 @@ function HumanConsolePreview() {
   }, [interpretation, execution]);
 
   useEffect(() => {
+    if (!interpretation) {
+      setCapabilityContract(null);
+      setCapabilityError(null);
+      setCapabilitying(false);
+      return;
+    }
+    let active = true;
+    setCapabilitying(true);
+    setCapabilityError(null);
+    postJson<CapabilityContract>("/capability-contracts", capabilityPayloadForIntent(interpretation))
+      .then((result) => {
+        if (!active) return;
+        setCapabilityContract(result);
+      })
+      .catch((error: Error) => {
+        if (!active) return;
+        setCapabilityContract(null);
+        setCapabilityError(error.message);
+      })
+      .finally(() => {
+        if (active) {
+          setCapabilitying(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [interpretation]);
+
+  useEffect(() => {
     if (execution) {
       setWorkspacing(false);
       return;
@@ -976,6 +1050,8 @@ function HumanConsolePreview() {
     setExecutionError(null);
     setGeneration(null);
     setGenerationError(null);
+    setCapabilityContract(null);
+    setCapabilityError(null);
   };
 
   const runPrimaryExecutionAction = () => {
@@ -1039,6 +1115,12 @@ function HumanConsolePreview() {
   const intentRisk = interpretationError ? "ERROR" : execution?.risk_level ?? interpretation?.risk_level ?? "CONTROLLED";
   const intentApproval = execution ? execution.approval_status.toUpperCase() : interpretation ? (interpretation.requires_approval ? "REQUIRED" : "NOT REQUIRED") : "PENDING";
   const intentTarget = interpretation?.response_target.toUpperCase() ?? "CEO";
+  const capabilityState = capabilityError ? "ERROR" : capabilityContract ? "REQUESTED" : capabilitying ? "REQUESTING" : "PENDING";
+  const capabilityType = capabilityContract?.capability_type.toUpperCase().replace(/_/g, " ") ?? "PENDING";
+  const capabilityReasoning = capabilityContract?.reasoning_level.toUpperCase() ?? "PENDING";
+  const capabilityCost = capabilityContract?.cost_priority.toUpperCase().replace(/_/g, " ") ?? "PENDING";
+  const capabilitySpeed = capabilityContract?.speed_priority.toUpperCase().replace(/_/g, " ") ?? "PENDING";
+  const capabilityFallback = capabilityContract ? (capabilityContract.fallback_allowed ? "ALLOWED" : "DISABLED") : "PENDING";
   const blueprintTitle = blueprint?.project_name ?? (blueprinting ? "Preparando blueprint tecnico." : "FORJA organiza la intencion como una estrategia de construccion.");
   const blueprintObjective = blueprintError
     ? `Blueprint error: ${blueprintError}`
@@ -1114,6 +1196,17 @@ function HumanConsolePreview() {
         `APPROVAL: ${intentApproval}`,
         `BYPASS: ${execution?.governance_bypass_blocked ? "BLOCKED" : "CONTROLLED"}`,
         `REASON: ${execution?.reason ?? "none"}`,
+      ],
+    },
+    {
+      title: "Capability Contract",
+      status: capabilityState,
+      items: [
+        `CAPABILITY REQUESTED: ${capabilityType}`,
+        `REASONING LEVEL: ${capabilityReasoning}`,
+        `COST PROFILE: ${capabilityCost}`,
+        `SPEED PROFILE: ${capabilitySpeed}`,
+        `FALLBACK POLICY: ${capabilityFallback}`,
       ],
     },
     {
@@ -1261,6 +1354,13 @@ function HumanConsolePreview() {
             <span>TARGET: {intentTarget}</span>
             <span>EXECUTION: {executionState}</span>
             {execution?.reason ? <span>REASON: {execution.reason}</span> : null}
+          </div>
+          <div className="human-classification" aria-label="Capability contract">
+            <span>CAPABILITY REQUESTED: {capabilityType}</span>
+            <span>REASONING: {capabilityReasoning}</span>
+            <span>COST: {capabilityCost}</span>
+            <span>SPEED: {capabilitySpeed}</span>
+            <span>FALLBACK: {capabilityFallback}</span>
           </div>
         </article>
 
