@@ -11,7 +11,7 @@ MOCK_PROVIDER_PROFILES: list[dict] = [
     {
         "provider_id": "anthropic",
         "provider_name": "Anthropic",
-        "supported_capabilities": ["reasoning", "analysis", "summarization", "architecture", "documentation", "debugging"],
+        "supported_capabilities": ["reasoning", "analysis", "summarization", "architecture", "documentation", "debugging", "repair"],
         "reasoning_strength": "extreme",
         "coding_strength": "medium",
         "speed_profile": "maximum_quality",
@@ -33,6 +33,7 @@ MOCK_PROVIDER_PROFILES: list[dict] = [
             "frontend_generation",
             "backend_generation",
             "debugging",
+            "repair",
             "analysis",
             "summarization",
             "architecture",
@@ -202,17 +203,8 @@ class ProviderAbstractionService:
         quality_score = self._quality_score(profile, contract)
         cost_score = self._cost_score(profile["cost_profile"], contract["cost_priority"])
         speed_score = self._speed_score(profile["speed_profile"], contract["speed_priority"])
-        context_score = min(profile["context_capacity"] / max(contract["context_size"], 1), 4.0) / 4.0
+        context_score = 1.0 if profile["context_capacity"] >= contract["context_size"] else 0.0
         compatibility_score = round((quality_score * 0.45) + (cost_score * 0.2) + (speed_score * 0.2) + (context_score * 0.15), 3)
-        if contract["capability_type"] == "frontend_generation" and profile["provider_id"] in {"openai", "gemini"}:
-            compatibility_score = min(1.0, compatibility_score + 0.08)
-        if contract["capability_type"] == "coding" and contract["cost_priority"] == "low_cost":
-            if profile["provider_id"] == "deepseek":
-                compatibility_score = min(1.0, compatibility_score + 0.16)
-            if profile["provider_id"] == "qwen":
-                compatibility_score = min(1.0, compatibility_score + 0.08)
-        if contract["reasoning_level"] in {"high", "extreme"} and profile["provider_id"] in {"anthropic", "openai"}:
-            compatibility_score = min(1.0, compatibility_score + 0.08)
         return {
             "provider_id": profile["provider_id"],
             "provider_name": profile["provider_name"],

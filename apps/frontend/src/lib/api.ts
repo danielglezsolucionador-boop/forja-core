@@ -99,6 +99,27 @@ export type ProviderRoutingDecision = {
   external_request_executed: boolean;
 };
 
+export type RoutingExecutionPlan = {
+  plan_id: string;
+  capability_id: string;
+  primary_provider: ProviderProfile | null;
+  fallback_provider: ProviderProfile | null;
+  fallback_tree: ProviderProfile[];
+  routing_reason: string;
+  estimated_quality: CapabilityContract["reasoning_level"] | null;
+  estimated_cost: CapabilityContract["cost_priority"] | null;
+  estimated_speed: CapabilityContract["speed_priority"] | null;
+  confidence: number;
+  execution_mode: "low_cost" | "balanced" | "premium" | "safe_mode" | "experimental";
+  approval_required: boolean;
+  risk_level: "LOW" | "MEDIUM" | "HIGH";
+  provider_scores: ProviderRoutingDecision["scoring"];
+  routing_factors: Record<string, string | number | boolean>;
+  timeline: Array<{ timestamp: string; event: string; detail: string }>;
+  external_request_executed: boolean;
+  generated_at: string;
+};
+
 export type CreatorSender = "user" | "cerebro" | "seo" | "system";
 export type CreatorDecision = "approve" | "reject" | "hold";
 export type IntentSender = "ceo" | "cerebro" | "user" | "seo" | "system";

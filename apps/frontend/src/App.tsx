@@ -18,7 +18,7 @@ import {
   ProjectBlueprint,
   ProjectGeneration,
   ProjectWorkspace,
-  ProviderRoutingDecision,
+  RoutingExecutionPlan,
   RuntimeStatus,
 } from "./lib/api";
 
@@ -756,7 +756,7 @@ function HumanConsolePreview() {
   const [capabilityContract, setCapabilityContract] = useState<CapabilityContract | null>(null);
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [capabilitying, setCapabilitying] = useState(false);
-  const [providerDecision, setProviderDecision] = useState<ProviderRoutingDecision | null>(null);
+  const [providerDecision, setProviderDecision] = useState<RoutingExecutionPlan | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
   const [providerMatching, setProviderMatching] = useState(false);
   const [execution, setExecution] = useState<GovernedExecution | null>(null);
@@ -1014,7 +1014,7 @@ function HumanConsolePreview() {
     let active = true;
     setProviderMatching(true);
     setProviderError(null);
-    postJson<ProviderRoutingDecision>("/provider-abstraction/route", { contract: capabilityContract })
+    postJson<RoutingExecutionPlan>("/capability-routing/plan", { contract: capabilityContract })
       .then((result) => {
         if (!active) return;
         setProviderDecision(result);
@@ -1165,13 +1165,17 @@ function HumanConsolePreview() {
   const capabilityCost = capabilityContract?.cost_priority.toUpperCase().replace(/_/g, " ") ?? "PENDING";
   const capabilitySpeed = capabilityContract?.speed_priority.toUpperCase().replace(/_/g, " ") ?? "PENDING";
   const capabilityFallback = capabilityContract ? (capabilityContract.fallback_allowed ? "ALLOWED" : "DISABLED") : "PENDING";
-  const providerState = providerError ? "ERROR" : providerDecision ? "ROUTED" : providerMatching ? "MATCHING" : "PENDING";
-  const providerName = providerDecision?.selected_provider?.provider_name ?? (providerDecision ? "NO COMPATIBLE PROVIDER" : "PENDING");
-  const providerQuality = providerDecision?.estimated_quality_profile?.toUpperCase() ?? "PENDING";
-  const providerCost = providerDecision?.estimated_cost_profile?.toUpperCase().replace(/_/g, " ") ?? "PENDING";
-  const providerFallback = providerDecision?.fallback_provider?.provider_name ?? providerDecision?.fallback_strategy.replace(/_/g, " ").toUpperCase() ?? "PENDING";
-  const providerReason = providerError ?? providerDecision?.reason ?? "Provider abstraction awaits a capability contract.";
+  const providerState = providerError ? "ERROR" : providerDecision ? "PLANNED" : providerMatching ? "MATCHING" : "PENDING";
+  const providerName = providerDecision?.primary_provider?.provider_name ?? (providerDecision ? "NO COMPATIBLE PROVIDER" : "PENDING");
+  const providerQuality = providerDecision?.estimated_quality?.toUpperCase() ?? "PENDING";
+  const providerCost = providerDecision?.estimated_cost?.toUpperCase().replace(/_/g, " ") ?? "PENDING";
+  const providerSpeed = providerDecision?.estimated_speed?.toUpperCase().replace(/_/g, " ") ?? "PENDING";
+  const providerFallback = providerDecision?.fallback_tree.length ? providerDecision.fallback_tree.map((provider) => provider.provider_name).join(" -> ") : providerDecision ? "NONE" : "PENDING";
+  const providerConfidence = providerDecision ? `${Math.round(providerDecision.confidence * 100)}%` : "0%";
+  const providerExecutionMode = providerDecision?.execution_mode.toUpperCase().replace(/_/g, " ") ?? "PENDING";
+  const providerReason = providerError ?? providerDecision?.routing_reason ?? "Capability routing awaits a capability contract.";
   const providerReasonShort = providerReason.length > 118 ? `${providerReason.slice(0, 115)}...` : providerReason;
+  const providerTimeline = providerDecision?.timeline.slice(-4) ?? [];
   const blueprintTitle = blueprint?.project_name ?? (blueprinting ? "Preparando blueprint tecnico." : "FORJA organiza la intencion como una estrategia de construccion.");
   const blueprintObjective = blueprintError
     ? `Blueprint error: ${blueprintError}`
@@ -1261,14 +1265,16 @@ function HumanConsolePreview() {
       ],
     },
     {
-      title: "Provider Routing",
+      title: "Routing Decision",
       status: providerState,
       items: [
-        `PROVIDER SUGGESTED: ${providerName}`,
-        `QUALITY PROFILE: ${providerQuality}`,
-        `COST PROFILE: ${providerCost}`,
-        `FALLBACK STRATEGY: ${providerFallback}`,
-        `COMPATIBILITY: ${providerDecision ? Math.round(providerDecision.confidence * 100) : 0}%`,
+        `ROUTING DECISION: ${providerName}`,
+        `PROVIDER CHOSEN: ${providerName}`,
+        `EXECUTION MODE: ${providerExecutionMode}`,
+        `ESTIMATED QUALITY: ${providerQuality}`,
+        `ESTIMATED COST: ${providerCost}`,
+        `ROUTING CONFIDENCE: ${providerConfidence}`,
+        `FALLBACK CHAIN: ${providerFallback}`,
       ],
     },
     {
@@ -1425,12 +1431,21 @@ function HumanConsolePreview() {
             <span>FALLBACK: {capabilityFallback}</span>
           </div>
           <div className="human-classification" aria-label="Provider routing">
-            <span>PROVIDER SUGGESTED: {providerName}</span>
-            <span>QUALITY PROFILE: {providerQuality}</span>
-            <span>COST PROFILE: {providerCost}</span>
-            <span>FALLBACK STRATEGY: {providerFallback}</span>
+            <span>ROUTING DECISION: {providerName}</span>
+            <span>PROVIDER CHOSEN: {providerName}</span>
+            <span>EXECUTION MODE: {providerExecutionMode}</span>
+            <span>ESTIMATED QUALITY: {providerQuality}</span>
+            <span>ESTIMATED COST: {providerCost}</span>
+            <span>ESTIMATED SPEED: {providerSpeed}</span>
+            <span>ROUTING CONFIDENCE: {providerConfidence}</span>
+            <span>FALLBACK CHAIN: {providerFallback}</span>
             <span>COMPATIBILITY REASONING: {providerReasonShort}</span>
           </div>
+          {providerTimeline.length ? (
+            <div className="human-classification" aria-label="Capability routing timeline">
+              {providerTimeline.map((event) => <span key={`${event.timestamp}-${event.event}`}>ROUTING TIMELINE: {event.event}</span>)}
+            </div>
+          ) : null}
         </article>
 
         <article className="human-plan-card">
