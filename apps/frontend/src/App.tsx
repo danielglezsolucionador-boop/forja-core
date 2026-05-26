@@ -1382,6 +1382,7 @@ function HumanConsolePreview() {
     ? "ERROR"
     : realExecution?.execution_state.toUpperCase().replace(/_/g, " ") ?? (realExecutionLoading ? "LOADING" : "PENDING");
   const realProviderUsed = realExecution?.provider_used?.toUpperCase() ?? "PENDING";
+  const realModelUsed = realExecution?.model_used ?? "PENDING";
   const realCapability = realExecution?.capability_type.toUpperCase().replace(/_/g, " ") ?? "PENDING";
   const realTask = realExecution?.task_type.toUpperCase().replace(/_/g, " ") ?? "PENDING";
   const realTokens = realExecution ? String(realExecution.estimated_tokens) : "PENDING";
@@ -1600,6 +1601,7 @@ function HumanConsolePreview() {
       status: realExecutionState,
       items: [
         `REAL PROVIDER USED: ${realProviderUsed}`,
+        `MODEL USED: ${realModelUsed}`,
         `REAL CAPABILITY: ${realCapability}`,
         `REAL TASK: ${realTask}`,
         `TOKENS ESTIMATED: ${realTokens}`,
@@ -1840,6 +1842,7 @@ function HumanConsolePreview() {
           </div>
           <div className="human-classification" aria-label="Real provider execution">
             <span>REAL PROVIDER USED: {realProviderUsed}</span>
+            <span>MODEL USED: {realModelUsed}</span>
             <span>CAPABILITY EXECUTED: {realCapability}</span>
             <span>TOKENS ESTIMATED: {realTokens}</span>
             <span>COST ESTIMATED: {realCost}</span>

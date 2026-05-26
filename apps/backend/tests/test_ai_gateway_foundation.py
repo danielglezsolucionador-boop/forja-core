@@ -54,7 +54,7 @@ def _decision(contract: dict) -> dict:
 def test_provider_registry_loads_mock_providers() -> None:
     snapshot = _status()
     provider_ids = {provider["provider_id"] for provider in snapshot["providers"]}
-    assert {"openai", "anthropic", "gemini", "deepseek", "qwen", "local_llm"}.issubset(provider_ids)
+    assert {"openrouter", "openai", "anthropic", "gemini", "deepseek", "qwen", "local_llm"}.issubset(provider_ids)
     assert _provider(snapshot, "openai")["enabled"] is True
     assert _provider(snapshot, "openai")["fallback_priority"] == 1
     assert snapshot["external_request_executed"] is False
@@ -147,11 +147,11 @@ def test_capability_lookup_returns_mapping_and_fallback_tree() -> None:
 
 
 def test_gateway_routing_access_uses_registry_health_filtering() -> None:
-    _enable("deepseek", "qwen")
-    client.post("/ai-gateway/providers/deepseek/disable")
+    _enable("openrouter", "deepseek", "qwen")
+    client.post("/ai-gateway/providers/openrouter/disable")
     decision = _decision(_contract(capability_type="coding", cost_priority="low_cost"))
-    assert decision["selected_provider"]["provider_id"] == "qwen"
-    assert "deepseek" in decision["availability_filter"]
+    assert decision["selected_provider"]["provider_id"] == "deepseek"
+    assert "openrouter" in decision["availability_filter"]
     assert decision["routing_plan"]["external_request_executed"] is False
     assert decision["external_request_executed"] is False
-    _enable("deepseek")
+    _enable("openrouter")

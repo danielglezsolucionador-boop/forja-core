@@ -41,7 +41,7 @@ def test_frontend_simulation_generates_operational_result() -> None:
     result = _simulate(_contract(capability_type="frontend_generation"))
     assert result["execution_status"] == "completed"
     assert result["generated_summary"].endswith("React dashboard structure prepared.")
-    assert result["provider_used"]["provider_id"] == "qwen"
+    assert result["provider_used"]["provider_id"] == "openrouter"
     assert result["provider_used"]["cost_profile"] == "low_cost"
     assert result["external_request_executed"] is False
     assert any(output["kind"] == "frontend_generation" for output in result["outputs"])

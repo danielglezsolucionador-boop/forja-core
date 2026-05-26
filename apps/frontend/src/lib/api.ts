@@ -149,6 +149,7 @@ export type ExecutionSimulationResult = {
 export type RealProviderExecutionResult = {
   execution_id: string;
   provider_used: string | null;
+  model_used: string | null;
   primary_provider_attempted: string | null;
   fallback_provider_used: string | null;
   capability_type: CapabilityContract["capability_type"];

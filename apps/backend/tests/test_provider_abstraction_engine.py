@@ -43,23 +43,23 @@ def test_reasoning_high_routes_to_anthropic_or_openai() -> None:
     assert decision["external_request_executed"] is False
 
 
-def test_low_cost_coding_routes_to_deepseek_with_qwen_fallback() -> None:
+def test_low_cost_coding_routes_to_openrouter_with_deepseek_fallback() -> None:
     decision = _route(_contract(capability_type="coding", coding_level="high", cost_priority="low_cost"))
-    assert decision["selected_provider"]["provider_id"] == "deepseek"
-    assert decision["fallback_provider"]["provider_id"] == "qwen"
+    assert decision["selected_provider"]["provider_id"] == "openrouter"
+    assert decision["fallback_provider"]["provider_id"] == "deepseek"
     assert decision["estimated_cost_profile"] == "low_cost"
 
 
 def test_frontend_generation_prefers_economic_provider() -> None:
     decision = _route(_contract(capability_type="frontend_generation", coding_level="high"))
-    assert decision["selected_provider"]["provider_id"] == "qwen"
+    assert decision["selected_provider"]["provider_id"] == "openrouter"
     assert decision["estimated_cost_profile"] == "low_cost"
-    assert {provider["provider_id"] for provider in decision["compatible_providers"]}.issuperset({"openai", "gemini", "qwen"})
+    assert {provider["provider_id"] for provider in decision["compatible_providers"]}.issuperset({"openrouter", "openai", "gemini", "qwen"})
 
 
 def test_backend_generation_has_coding_compatible_profiles() -> None:
     decision = _route(_contract(capability_type="backend_generation", coding_level="high", cost_priority="balanced"))
-    assert decision["selected_provider"]["provider_id"] in {"openai", "deepseek", "qwen"}
+    assert decision["selected_provider"]["provider_id"] in {"openrouter", "openai", "deepseek", "qwen"}
     assert all("backend_generation" in provider["supported_capabilities"] for provider in decision["compatible_providers"])
 
 
@@ -114,7 +114,7 @@ def test_profiles_and_audit_events_are_exposed() -> None:
     profiles = client.get("/provider-abstraction/profiles")
     assert profiles.status_code == 200
     provider_ids = {profile["provider_id"] for profile in profiles.json()}
-    assert {"openai", "anthropic", "gemini", "deepseek", "qwen", "local_llm"}.issubset(provider_ids)
+    assert {"openrouter", "openai", "anthropic", "gemini", "deepseek", "qwen", "local_llm"}.issubset(provider_ids)
 
     _route(_contract(capability_type="documentation", reasoning_level="low"))
     audit_types = [event["event_type"] for event in read_audit_events(160)]

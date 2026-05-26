@@ -51,6 +51,7 @@ class RealAIOutput(BaseModel):
 class RealProviderExecutionResult(BaseModel):
     execution_id: str
     provider_used: str | None
+    model_used: str | None = None
     primary_provider_attempted: str | None
     fallback_provider_used: str | None
     capability_type: CapabilityType

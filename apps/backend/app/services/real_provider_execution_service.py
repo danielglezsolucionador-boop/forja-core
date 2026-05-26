@@ -54,7 +54,7 @@ SAFE_MODE_BLOCKLIST = {
     "token",
     "while true",
 }
-PROVIDER_COST_RATE = {"deepseek": 0.00014, "qwen": 0.00018, "openai": 0.0006, "anthropic": 0.003}
+PROVIDER_COST_RATE = {"openrouter": 0.00065, "deepseek": 0.00014, "qwen": 0.00018, "openai": 0.0006, "anthropic": 0.003}
 WORKSPACE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,79}$")
 
 
@@ -67,6 +67,8 @@ class RealProviderTransportError(RuntimeError):
 
 class HTTPRealProviderTransport:
     def execute(self, provider_id: str, prompt: str, max_tokens: int, timeout_seconds: int) -> dict:
+        if provider_id == "openrouter":
+            return self._execute_openrouter(prompt, max_tokens, timeout_seconds)
         if provider_id in {"deepseek", "qwen"}:
             return self._execute_openai_compatible(provider_id, prompt, max_tokens, timeout_seconds)
         if provider_id == "openai":
@@ -74,6 +76,9 @@ class HTTPRealProviderTransport:
         if provider_id == "anthropic":
             return self._execute_anthropic(prompt, max_tokens, timeout_seconds)
         raise RealProviderTransportError("invalid_real_provider")
+
+    def _execute_openrouter(self, prompt: str, max_tokens: int, timeout_seconds: int) -> dict:
+        return self._execute_openai_compatible("openrouter", prompt, max_tokens, timeout_seconds)
 
     def _execute_openai_compatible(self, provider_id: str, prompt: str, max_tokens: int, timeout_seconds: int) -> dict:
         config = self._openai_compatible_config(provider_id)
@@ -90,9 +95,11 @@ class HTTPRealProviderTransport:
             "stream": False,
         }
         try:
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            headers.update(config.get("headers", {}))
             response = httpx.post(
                 f"{config['base_url'].rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                headers=headers,
                 json=payload,
                 timeout=timeout_seconds,
             )
@@ -115,6 +122,16 @@ class HTTPRealProviderTransport:
                 "api_key": os.environ.get("DEEPSEEK_API_KEY", "").strip(),
                 "base_url": os.environ.get("FORJA_DEEPSEEK_BASE_URL", os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com")),
                 "model": os.environ.get("FORJA_DEEPSEEK_MODEL", os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")),
+            }
+        if provider_id == "openrouter":
+            return {
+                "api_key": os.environ.get("OPENROUTER_API_KEY", "").strip(),
+                "base_url": os.environ.get("FORJA_OPENROUTER_BASE_URL", os.environ.get("OPENROUTER_API_BASE", "https://openrouter.ai/api/v1")),
+                "model": os.environ.get("FORJA_OPENROUTER_MODEL", os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-chat")),
+                "headers": {
+                    "HTTP-Referer": os.environ.get("FORJA_PUBLIC_URL", "https://forja-frontend.onrender.com"),
+                    "X-OpenRouter-Title": "FORJA Operational Core",
+                },
             }
         if provider_id == "qwen":
             return {
@@ -314,6 +331,7 @@ class RealProviderExecutionEngine:
 
         fallback_triggered = primary != selection["primary"] and selection["primary"] is not None
         provider_used: str | None = None
+        model_used: str | None = None
         fallback_provider_used: str | None = primary if fallback_triggered else None
         external_request_executed = False
         generated_text = ""
@@ -327,6 +345,7 @@ class RealProviderExecutionEngine:
                 response = self._transport.execute(provider_id, prompt, max_tokens, timeout_seconds)
                 external_request_executed = True
                 provider_used = provider_id
+                model_used = str(response.get("model") or "").strip() or None
                 fallback_provider_used = provider_id if is_fallback_attempt else fallback_provider_used
                 generated_text = str(response.get("text", "")).strip()
                 usage = response.get("usage", {}) if isinstance(response.get("usage", {}), dict) else {}
@@ -365,12 +384,13 @@ class RealProviderExecutionEngine:
         elapsed = round(time.perf_counter() - started, 2)
         estimated_tokens = self._estimated_tokens(prompt, generated_text, usage)
         estimated_cost = self._estimated_cost(provider_used, estimated_tokens)
-        output = self._write_output(execution_id, workspace_id, task_type, generated_text, provider_used, estimated_tokens, estimated_cost)
+        output = self._write_output(execution_id, workspace_id, task_type, generated_text, provider_used, model_used, estimated_tokens, estimated_cost)
         timeline.append(self._event("output.generated", f"{output['label']} saved inside the controlled workspace."))
         state = "completed" if not fallback_triggered else "degraded_mode"
         result = {
             "execution_id": execution_id,
             "provider_used": provider_used,
+            "model_used": model_used,
             "primary_provider_attempted": primary_attempted or primary,
             "fallback_provider_used": fallback_provider_used,
             "capability_type": capability_type,
@@ -400,6 +420,7 @@ class RealProviderExecutionEngine:
             {
                 "execution_id": execution_id,
                 "provider_used": provider_used,
+                "model_used": model_used,
                 "task_type": task_type,
                 "estimated_tokens": estimated_tokens,
                 "estimated_cost": estimated_cost,
@@ -414,6 +435,7 @@ class RealProviderExecutionEngine:
             {
                 "execution_id": execution_id,
                 "provider_used": provider_used,
+                "model_used": model_used,
                 "execution_mode": result["execution_mode"],
                 "estimated_cost": estimated_cost,
                 "external_request_executed": external_request_executed,
@@ -428,10 +450,13 @@ class RealProviderExecutionEngine:
 
     def status(self) -> dict:
         latest = self.latest()
+        economic = economic_provider_ids()
+        economic_provider_id = economic[0] if economic else None
         return {
             "engine_status": "ready",
             "safe_mode_default": True,
-            "economic_provider_id": economic_provider_ids()[0] if economic_provider_ids() else None,
+            "economic_provider_id": economic_provider_id,
+            "economic_model": self._model_for_provider(economic_provider_id),
             "premium_fallback_provider_ids": premium_provider_ids(),
             "supported_real_providers": real_execution_provider_ids(),
             "supported_tasks": sorted(TASK_OUTPUTS),
@@ -565,6 +590,7 @@ class RealProviderExecutionEngine:
         task_type: str,
         generated_text: str,
         provider_used: str | None,
+        model_used: str | None,
         estimated_tokens: int,
         estimated_cost: float,
     ) -> dict:
@@ -582,6 +608,7 @@ class RealProviderExecutionEngine:
         report = {
             "execution_id": execution_id,
             "provider_used": provider_used,
+            "model_used": model_used,
             "task_type": task_type,
             "estimated_tokens": estimated_tokens,
             "estimated_cost": estimated_cost,
@@ -632,6 +659,19 @@ class RealProviderExecutionEngine:
         rate = PROVIDER_COST_RATE.get(provider_used or "openai", 0.0006)
         return round((estimated_tokens / 1000) * rate, 6)
 
+    def _model_for_provider(self, provider_id: str | None) -> str | None:
+        if provider_id == "openrouter":
+            return os.environ.get("FORJA_OPENROUTER_MODEL", os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-chat"))
+        if provider_id == "deepseek":
+            return os.environ.get("FORJA_DEEPSEEK_MODEL", os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"))
+        if provider_id == "qwen":
+            return os.environ.get("FORJA_QWEN_MODEL", os.environ.get("QWEN_MODEL", "qwen-plus"))
+        if provider_id == "openai":
+            return os.environ.get("FORJA_OPENAI_MODEL", os.environ.get("OPENAI_MODEL", "gpt-4o-mini"))
+        if provider_id == "anthropic":
+            return os.environ.get("FORJA_ANTHROPIC_MODEL", os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5"))
+        return None
+
     def _failed_result(
         self,
         execution_id: str,
@@ -647,6 +687,7 @@ class RealProviderExecutionEngine:
         result = {
             "execution_id": execution_id,
             "provider_used": None,
+            "model_used": None,
             "primary_provider_attempted": primary_attempted or self._clean_provider(payload.get("provider_id")),
             "fallback_provider_used": None,
             "capability_type": payload.get("capability_type", "documentation"),
@@ -731,6 +772,7 @@ class RealProviderExecutionEngine:
                     }
                 )
         enriched = dict(result)
+        enriched.setdefault("model_used", None)
         enriched["audit_events"] = preview[-12:]
         return enriched
 

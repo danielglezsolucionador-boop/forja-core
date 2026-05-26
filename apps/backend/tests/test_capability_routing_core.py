@@ -40,8 +40,8 @@ def _plan(contract: dict, **overrides) -> dict:
 def test_low_cost_request_routes_to_low_cost_coding_profiles() -> None:
     plan = _plan(_contract(capability_type="coding", coding_level="high", cost_priority="low_cost"))
     assert plan["execution_mode"] == "low_cost"
-    assert plan["primary_provider"]["provider_id"] == "deepseek"
-    assert plan["fallback_provider"]["provider_id"] == "qwen"
+    assert plan["primary_provider"]["provider_id"] == "openrouter"
+    assert plan["fallback_provider"]["provider_id"] == "deepseek"
     assert plan["estimated_cost"] == "low_cost"
 
 
@@ -54,14 +54,14 @@ def test_premium_request_routes_to_premium_provider() -> None:
 
 def test_frontend_request_routes_to_economic_frontend_specialist() -> None:
     plan = _plan(_contract(capability_type="frontend_generation", coding_level="high", speed_priority="balanced"))
-    assert plan["primary_provider"]["provider_id"] == "qwen"
+    assert plan["primary_provider"]["provider_id"] == "openrouter"
     assert plan["execution_mode"] == "low_cost"
     assert "frontend_generation" in plan["primary_provider"]["supported_capabilities"]
 
 
 def test_backend_request_routes_to_backend_capable_provider() -> None:
     plan = _plan(_contract(capability_type="backend_generation", coding_level="high", cost_priority="balanced"))
-    assert plan["primary_provider"]["provider_id"] in {"openai", "deepseek", "qwen"}
+    assert plan["primary_provider"]["provider_id"] in {"openrouter", "openai", "deepseek", "qwen"}
     assert "backend_generation" in plan["primary_provider"]["supported_capabilities"]
 
 
@@ -84,10 +84,10 @@ def test_reasoning_extreme_routes_to_high_quality_provider() -> None:
 def test_provider_disabled_is_excluded_from_selection() -> None:
     plan = _plan(
         _contract(capability_type="coding", coding_level="high", cost_priority="low_cost"),
-        disabled_provider_ids=["deepseek"],
+        disabled_provider_ids=["openrouter"],
     )
-    assert plan["primary_provider"]["provider_id"] == "qwen"
-    assert all(score["provider_id"] != "deepseek" for score in plan["provider_scores"])
+    assert plan["primary_provider"]["provider_id"] == "deepseek"
+    assert all(score["provider_id"] != "openrouter" for score in plan["provider_scores"])
 
 
 def test_fallback_enabled_builds_fallback_tree() -> None:

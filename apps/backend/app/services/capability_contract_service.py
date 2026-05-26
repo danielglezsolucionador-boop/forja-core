@@ -8,6 +8,7 @@ from app.core.storage import JsonStore, store
 
 PROVIDER_AGNOSTIC_CONSTRAINTS = ["provider_agnostic", "no_model_selection", "no_api_execution"]
 FORBIDDEN_PROVIDER_MARKERS = {
+    "openrouter",
     "openai",
     "anthropic",
     "gemini",

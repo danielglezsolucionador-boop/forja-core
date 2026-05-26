@@ -7,6 +7,7 @@ from app.services.provider_abstraction_service import MOCK_PROVIDER_PROFILES
 
 
 ECONOMIC_PROVIDER_ENV = "FORJA_ECONOMIC_PROVIDER_ID"
+DEFAULT_PROVIDER_ENV = "FORJA_DEFAULT_PROVIDER"
 
 
 def provider_profiles() -> list[dict]:
@@ -15,7 +16,7 @@ def provider_profiles() -> list[dict]:
 
 def economic_provider_ids(profiles: Iterable[dict] | None = None) -> list[str]:
     records = list(profiles or provider_profiles())
-    configured = os.environ.get(ECONOMIC_PROVIDER_ENV, "").strip().lower()
+    configured = os.environ.get(ECONOMIC_PROVIDER_ENV, os.environ.get(DEFAULT_PROVIDER_ENV, "")).strip().lower()
     low_cost = [
         profile["provider_id"]
         for profile in sorted(records, key=lambda item: (item["fallback_priority"], item["provider_id"]))

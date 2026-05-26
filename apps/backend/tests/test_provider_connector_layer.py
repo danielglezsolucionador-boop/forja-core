@@ -10,7 +10,7 @@ from app.main import app
 
 client = TestClient(app)
 
-SECRET_ENV_VARS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "QWEN_API_KEY"]
+SECRET_ENV_VARS = ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "QWEN_API_KEY"]
 
 
 def _clear_keys(monkeypatch) -> None:
@@ -35,10 +35,10 @@ def _enable(provider_id: str) -> None:
 
 def test_provider_configured_with_safe_credential(monkeypatch) -> None:
     _clear_keys(monkeypatch)
-    _enable("openai")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-proj-test-provider-connector-key")
+    _enable("openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-test-provider-connector-key")
     snapshot = _status()
-    provider = _provider(snapshot, "openai")
+    provider = _provider(snapshot, "openrouter")
     assert provider["credential_configured"] is True
     assert provider["credential_state"] == "configured"
     assert provider["connector_state"] == "ready"
@@ -85,14 +85,17 @@ def test_capability_mismatch(monkeypatch) -> None:
 
 def test_fallback_ready_for_configured_backend_providers(monkeypatch) -> None:
     _clear_keys(monkeypatch)
+    _enable("openrouter")
     _enable("deepseek")
     _enable("qwen")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-openrouter-connector-test")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-connector-test")
     monkeypatch.setenv("QWEN_API_KEY", "sk-qwen-connector-test-key")
-    response = client.post("/provider-connectors/validate", json={"provider_id": "deepseek", "capability_type": "backend_generation"})
+    response = client.post("/provider-connectors/validate", json={"provider_id": "openrouter", "capability_type": "backend_generation"})
     assert response.status_code == 200
     result = response.json()
     assert result["compatible"] is True
+    assert "deepseek" in result["fallback_provider_ids"]
     assert "qwen" in result["fallback_provider_ids"]
 
 
@@ -109,15 +112,15 @@ def test_provider_registry_consistency(monkeypatch) -> None:
     _clear_keys(monkeypatch)
     snapshot = _status()
     provider_ids = {provider["provider_id"] for provider in snapshot["providers"]}
-    assert provider_ids == {"openai", "anthropic", "gemini", "deepseek", "qwen", "local_llm"}
+    assert provider_ids == {"openrouter", "openai", "anthropic", "gemini", "deepseek", "qwen", "local_llm"}
     assert all(provider["supported_capabilities"] for provider in snapshot["providers"])
     assert snapshot["external_request_executed"] is False
 
 
 def test_secret_protection(monkeypatch) -> None:
     _clear_keys(monkeypatch)
-    secret = "sk-proj-super-secret-value-that-must-not-leak"
-    monkeypatch.setenv("OPENAI_API_KEY", secret)
+    secret = "sk-or-v1-super-secret-value-that-must-not-leak"
+    monkeypatch.setenv("OPENROUTER_API_KEY", secret)
     payload = _status()
     rendered = json.dumps(payload)
     assert secret not in rendered
@@ -127,9 +130,9 @@ def test_secret_protection(monkeypatch) -> None:
 
 def test_connector_audit_events(monkeypatch) -> None:
     _clear_keys(monkeypatch)
-    _enable("openai")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-proj-audit-provider-connector")
-    client.post("/provider-connectors/validate", json={"provider_id": "openai", "capability_type": "coding"})
+    _enable("openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-audit-provider-connector")
+    client.post("/provider-connectors/validate", json={"provider_id": "openrouter", "capability_type": "coding"})
     audit_types = [event["event_type"] for event in read_audit_events(320)]
     assert "provider_connector_loaded" in audit_types
     assert "provider_ready" in audit_types

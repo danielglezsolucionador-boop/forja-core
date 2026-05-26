@@ -9,6 +9,7 @@ from app.services.provider_abstraction_service import MOCK_PROVIDER_PROFILES
 
 
 PROVIDER_ENV_VARS = {
+    "openrouter": "OPENROUTER_API_KEY",
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
@@ -19,6 +20,7 @@ PROVIDER_ENV_ALIASES = {
     "qwen": ("QWEN_API_KEY", "DASHSCOPE_API_KEY"),
 }
 PROVIDER_CREDENTIAL_PATTERNS = {
+    "openrouter": {"prefixes": ("sk-or-",), "min_length": 18},
     "openai": {"prefixes": ("sk-",), "min_length": 18},
     "anthropic": {"prefixes": ("sk-ant-",), "min_length": 18},
     "gemini": {"prefixes": ("AIza",), "min_length": 18},
@@ -194,6 +196,10 @@ class LocalModelConnector(BaseProviderConnector):
         return "not_required", "local_llm_connector_prepared_without_model_execution"
 
 
+class OpenRouterProviderConnector(BaseProviderConnector):
+    pass
+
+
 class ProviderConnectorLayer:
     def __init__(self, state_store: JsonStore | None = None) -> None:
         self._store = state_store or store("provider_connectors")
@@ -303,6 +309,8 @@ class ProviderConnectorLayer:
         enabled = bool(payload.get("providers", {}).get(provider_id, {}).get("enabled", True))
         if provider_id == "local_llm":
             return LocalModelConnector(profile, enabled)
+        if provider_id == "openrouter":
+            return OpenRouterProviderConnector(profile, enabled)
         return BaseProviderConnector(profile, enabled)
 
     def _set_enabled(self, provider_id: str, enabled: bool, audit_event: str) -> dict:

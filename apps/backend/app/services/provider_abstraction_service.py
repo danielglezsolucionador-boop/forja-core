@@ -9,6 +9,22 @@ QUALITY_VALUES = {"low": 0.35, "medium": 0.6, "high": 0.85, "extreme": 1.0, "non
 
 MOCK_PROVIDER_PROFILES: list[dict] = [
     {
+        "provider_id": "openrouter",
+        "provider_name": "OpenRouter",
+        "supported_capabilities": ["reasoning", "coding", "frontend_generation", "backend_generation", "debugging", "analysis", "summarization", "architecture", "documentation"],
+        "reasoning_strength": "medium",
+        "coding_strength": "high",
+        "speed_profile": "balanced",
+        "cost_profile": "low_cost",
+        "context_capacity": 131000,
+        "availability_status": "simulated_profile_only",
+        "fallback_priority": 0,
+        "premium_provider": False,
+        "local_provider": False,
+        "enabled": True,
+        "notes": "Economic operational provider through OpenRouter. Real execution uses OPENROUTER_API_KEY with safe limits.",
+    },
+    {
         "provider_id": "anthropic",
         "provider_name": "Anthropic",
         "supported_capabilities": ["reasoning", "analysis", "summarization", "architecture", "documentation", "debugging", "repair"],

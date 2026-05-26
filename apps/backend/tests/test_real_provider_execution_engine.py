@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.core.storage import JsonStore
 from app.services.provider_connector_service import ProviderConnectorLayer
-from app.services.real_provider_execution_service import RealProviderExecutionEngine, RealProviderTransportError
+from app.services.real_provider_execution_service import HTTPRealProviderTransport, RealProviderExecutionEngine, RealProviderTransportError
 
 
 class FakeRealTransport:
@@ -23,15 +23,28 @@ class FakeRealTransport:
         assert "sk-ant" not in prompt
         assert max_tokens <= 700
         assert timeout_seconds <= 45
-        return {"text": self.text, "usage": {"input_tokens": 32, "output_tokens": 28, "total_tokens": 60}}
+        return {"text": self.text, "model": f"{provider_id}-test-model", "usage": {"input_tokens": 32, "output_tokens": 28, "total_tokens": 60}}
 
 
 def _clear_provider_keys(monkeypatch) -> None:
-    for key in ["DEEPSEEK_API_KEY", "QWEN_API_KEY", "DASHSCOPE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]:
+    for key in [
+        "OPENROUTER_API_KEY",
+        "FORJA_DEFAULT_PROVIDER",
+        "FORJA_OPENROUTER_MODEL",
+        "OPENROUTER_MODEL",
+        "DEEPSEEK_API_KEY",
+        "QWEN_API_KEY",
+        "DASHSCOPE_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+    ]:
         monkeypatch.delenv(key, raising=False)
 
 
 def _set_economic_provider_keys(monkeypatch) -> None:
+    monkeypatch.setenv("FORJA_DEFAULT_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-openrouter-real-provider-execution-test")
+    monkeypatch.setenv("FORJA_OPENROUTER_MODEL", "deepseek/deepseek-chat")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-real-provider-execution-test")
     monkeypatch.setenv("QWEN_API_KEY", "sk-qwen-real-provider-execution-test")
 
@@ -76,7 +89,8 @@ def test_real_readme_generation(monkeypatch, tmp_path) -> None:
     transport = FakeRealTransport(text="# Inventory README\n\nA small governed README.")
     result = _engine(tmp_path, transport).execute(_payload())
     assert result["execution_state"] == "completed"
-    assert result["provider_used"] == "deepseek"
+    assert result["provider_used"] == "openrouter"
+    assert result["model_used"] == "openrouter-test-model"
     assert result["execution_mode"] == "economic_low_cost"
     assert result["response_received"] is True
     assert result["external_request_executed"] is True
@@ -105,11 +119,11 @@ def test_provider_unavailable(monkeypatch, tmp_path) -> None:
 
 def test_fallback_execution(monkeypatch, tmp_path) -> None:
     _set_economic_provider_keys(monkeypatch)
-    transport = FakeRealTransport(failures={"deepseek": "provider_http_error"}, text="Fallback documentation generated.")
+    transport = FakeRealTransport(failures={"openrouter": "provider_http_error"}, text="Fallback documentation generated.")
     result = _engine(tmp_path, transport).execute(_payload())
     assert result["execution_state"] == "degraded_mode"
-    assert result["provider_used"] == "qwen"
-    assert result["fallback_provider_used"] == "qwen"
+    assert result["provider_used"] == "deepseek"
+    assert result["fallback_provider_used"] == "deepseek"
     assert result["fallback_triggered"] is True
     assert "fallback_real_ai_triggered" in {event["event_type"] for event in result["audit_events"]}
 
@@ -144,7 +158,7 @@ def test_rate_limiting(monkeypatch, tmp_path) -> None:
 
 def test_timeout_handling(monkeypatch, tmp_path) -> None:
     _set_economic_provider_keys(monkeypatch)
-    result = _engine(tmp_path, FakeRealTransport(failures={"deepseek": "provider_timeout"})).execute(
+    result = _engine(tmp_path, FakeRealTransport(failures={"openrouter": "provider_timeout"})).execute(
         _payload(fallback_allowed=False)
     )
     assert result["execution_state"] == "failed"
@@ -180,3 +194,35 @@ def test_premium_provider_remains_available_when_explicit(monkeypatch, tmp_path)
     assert result["execution_state"] == "completed"
     assert result["provider_used"] == "openai"
     assert result["execution_mode"] == "low_cost_safe"
+
+
+def test_openrouter_transport_uses_openrouter_endpoint_and_headers(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-openrouter-http-transport-test")
+    monkeypatch.setenv("FORJA_OPENROUTER_MODEL", "deepseek/deepseek-chat")
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "model": captured["json"]["model"],
+                "choices": [{"message": {"content": "OpenRouter response."}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            }
+
+    def fake_post(url: str, *, headers: dict, json: dict, timeout: int) -> Response:
+        captured.update({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return Response()
+
+    monkeypatch.setattr("app.services.real_provider_execution_service.httpx.post", fake_post)
+    result = HTTPRealProviderTransport().execute("openrouter", "short governed prompt", 128, 7)
+    assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
+    assert captured["json"]["model"] == "deepseek/deepseek-chat"
+    assert captured["json"]["max_tokens"] == 128
+    assert captured["headers"]["Content-Type"] == "application/json"
+    assert captured["headers"]["Authorization"].startswith("Bearer ")
+    assert captured["headers"]["X-OpenRouter-Title"] == "FORJA Operational Core"
+    assert result["model"] == "deepseek/deepseek-chat"
+    assert result["text"] == "OpenRouter response."
