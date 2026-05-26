@@ -146,6 +146,48 @@ export type ExecutionSimulationResult = {
   generated_at: string;
 };
 
+export type AIGatewayProviderHealthState = "active" | "degraded" | "unavailable" | "disabled" | "maintenance";
+export type ProviderHealthSnapshot = {
+  provider_id: string;
+  health_state: AIGatewayProviderHealthState;
+  simulated_latency: number;
+  simulated_failure_rate: number;
+  simulated_cost_tier: CapabilityContract["cost_priority"];
+  last_updated: string;
+};
+export type AIGatewayProviderRecord = {
+  provider_id: string;
+  provider_name: string;
+  enabled: boolean;
+  availability: AIGatewayProviderHealthState;
+  quality_profile: Record<string, string>;
+  cost_profile: CapabilityContract["cost_priority"];
+  speed_profile: CapabilityContract["speed_priority"];
+  supported_capabilities: CapabilityContract["capability_type"][];
+  fallback_priority: number;
+  premium_provider: boolean;
+  local_provider: boolean;
+  health: ProviderHealthSnapshot;
+  notes: string;
+};
+export type CapabilityRegistryEntry = {
+  capability_type: CapabilityContract["capability_type"];
+  provider_ids: string[];
+  available_provider_ids: string[];
+  fallback_provider_ids: string[];
+};
+export type AIGatewaySnapshot = {
+  gateway_status: "active" | "degraded";
+  providers: AIGatewayProviderRecord[];
+  capabilities: CapabilityRegistryEntry[];
+  health: ProviderHealthSnapshot[];
+  fallback_tree: Record<string, string[]>;
+  execution_profiles: Array<{ execution_mode: string; quality_bias: string; cost_bias: string; speed_bias: string; fallback_policy: string }>;
+  timeline: Array<{ timestamp: string; event: string; detail: string }>;
+  external_request_executed: boolean;
+  generated_at: string;
+};
+
 export type CreatorSender = "user" | "cerebro" | "seo" | "system";
 export type CreatorDecision = "approve" | "reject" | "hold";
 export type IntentSender = "ceo" | "cerebro" | "user" | "seo" | "system";

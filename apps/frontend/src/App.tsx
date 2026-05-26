@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   API_URL,
+  AIGatewaySnapshot,
   CapabilityContract,
   CapabilityConsumption,
   CapabilityKind,
@@ -763,6 +764,9 @@ function HumanConsolePreview() {
   const [simulation, setSimulation] = useState<ExecutionSimulationResult | null>(null);
   const [simulationError, setSimulationError] = useState<string | null>(null);
   const [simulating, setSimulating] = useState(false);
+  const [gateway, setGateway] = useState<AIGatewaySnapshot | null>(null);
+  const [gatewayError, setGatewayError] = useState<string | null>(null);
+  const [gatewayLoading, setGatewayLoading] = useState(false);
   const [execution, setExecution] = useState<GovernedExecution | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [executing, setExecuting] = useState(false);
@@ -838,6 +842,30 @@ function HumanConsolePreview() {
       setVisualState("INTERPRETING");
     }
   };
+
+  useEffect(() => {
+    let active = true;
+    setGatewayLoading(true);
+    setGatewayError(null);
+    fetchJson<AIGatewaySnapshot>("/ai-gateway/status")
+      .then((result) => {
+        if (!active) return;
+        setGateway(result);
+      })
+      .catch((error: Error) => {
+        if (!active) return;
+        setGateway(null);
+        setGatewayError(error.message);
+      })
+      .finally(() => {
+        if (active) {
+          setGatewayLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const hasIntent = commandText.trim().length > 0;
@@ -1238,6 +1266,24 @@ function HumanConsolePreview() {
   const simulationTimeline = simulation?.timeline.slice(-5) ?? [];
   const simulationOutputs = simulation?.outputs ?? [];
   const simulationAudit = simulation?.audit_events.slice(-5) ?? [];
+  const gatewayState = gatewayError ? "ERROR" : gateway?.gateway_status.toUpperCase() ?? (gatewayLoading ? "LOADING" : "PENDING");
+  const gatewayProviders = gateway?.providers ?? [];
+  const gatewayActiveProviders = gatewayProviders.filter((provider) => provider.enabled && ["active", "degraded"].includes(provider.availability)).length;
+  const gatewayProviderAvailability = gatewayProviders.length
+    ? gatewayProviders.map((provider) => `${provider.provider_id}:${provider.availability}`).join(" | ")
+    : gatewayError ?? "pending";
+  const gatewayProviderStates = gatewayProviders.length
+    ? gatewayProviders.slice(0, 6).map((provider) => `${provider.provider_name} ${provider.enabled ? "ON" : "OFF"}`).join(" | ")
+    : "pending";
+  const gatewayCapabilityEntry = gateway?.capabilities.find((item) => item.capability_type === capabilityContract?.capability_type) ?? gateway?.capabilities[0];
+  const gatewayCapabilityMapping = gatewayCapabilityEntry
+    ? `${gatewayCapabilityEntry.capability_type.toUpperCase().replace(/_/g, " ")} -> ${gatewayCapabilityEntry.available_provider_ids.join(" -> ") || "none"}`
+    : "pending";
+  const gatewayFallbackReadiness = gatewayCapabilityEntry
+    ? gatewayCapabilityEntry.fallback_provider_ids.length ? gatewayCapabilityEntry.fallback_provider_ids.join(" -> ") : "NONE"
+    : "PENDING";
+  const gatewayHealthModel = gateway?.health.length ? `${gateway.health.length} HEALTH SNAPSHOTS` : "PENDING";
+  const gatewayTimeline = gateway?.timeline.slice(-4) ?? [];
   const blueprintTitle = blueprint?.project_name ?? (blueprinting ? "Preparando blueprint tecnico." : "FORJA organiza la intencion como una estrategia de construccion.");
   const blueprintObjective = blueprintError
     ? `Blueprint error: ${blueprintError}`
@@ -1324,6 +1370,19 @@ function HumanConsolePreview() {
         `COST PROFILE: ${capabilityCost}`,
         `SPEED PROFILE: ${capabilitySpeed}`,
         `FALLBACK POLICY: ${capabilityFallback}`,
+      ],
+    },
+    {
+      title: "AI Gateway",
+      status: gatewayState,
+      items: [
+        `AI GATEWAY STATUS: ${gatewayState}`,
+        `PROVIDERS ACTIVE: ${gatewayActiveProviders}/${gatewayProviders.length || 0}`,
+        `PROVIDER AVAILABILITY: ${gatewayProviderAvailability}`,
+        `PROVIDER STATES: ${gatewayProviderStates}`,
+        `FALLBACK READINESS: ${gatewayFallbackReadiness}`,
+        `CAPABILITY MAPPING: ${gatewayCapabilityMapping}`,
+        `HEALTH MODEL: ${gatewayHealthModel}`,
       ],
     },
     {
@@ -1506,6 +1565,18 @@ function HumanConsolePreview() {
             <span>SPEED: {capabilitySpeed}</span>
             <span>FALLBACK: {capabilityFallback}</span>
           </div>
+          <div className="human-classification" aria-label="AI Gateway">
+            <span>AI GATEWAY STATUS: {gatewayState}</span>
+            <span>PROVIDER AVAILABILITY: {gatewayProviderAvailability}</span>
+            <span>PROVIDER STATES: {gatewayProviderStates}</span>
+            <span>FALLBACK READINESS: {gatewayFallbackReadiness}</span>
+            <span>CAPABILITY MAPPING: {gatewayCapabilityMapping}</span>
+          </div>
+          {gatewayTimeline.length ? (
+            <div className="human-classification" aria-label="AI Gateway timeline">
+              {gatewayTimeline.map((event) => <span key={`${event.timestamp}-${event.event}`}>GATEWAY TIMELINE: {event.event}</span>)}
+            </div>
+          ) : null}
           <div className="human-classification" aria-label="Provider routing">
             <span>ROUTING DECISION: {providerName}</span>
             <span>PROVIDER CHOSEN: {providerName}</span>
