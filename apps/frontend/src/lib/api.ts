@@ -96,6 +96,26 @@ export type ProjectWorkspace = {
   timeline: Array<{ timestamp: string; event: string; detail: string }>;
   created_at: string;
 };
+export type ProjectGeneration = {
+  generation_id: string;
+  request_id: string;
+  workspace_id: string;
+  blueprint_id: string;
+  project_name: string;
+  project_type: string;
+  risk_level: string;
+  status: "completed" | "blocked" | "duplicate_blocked";
+  reason: string | null;
+  approval_status: "not_required" | "approved" | "required" | "blocked";
+  logical_path: string;
+  generated_files: string[];
+  generated_directories: string[];
+  modules_created: string[];
+  dangerous_files_blocked: boolean;
+  workspace_isolated: boolean;
+  timeline: Array<{ timestamp: string; event: string; detail: string }>;
+  created_at: string;
+};
 export type CapabilityStatus = "pending" | "approved" | "rejected" | "unavailable";
 export type CapabilityKind =
   | "more_context"

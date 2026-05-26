@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   API_URL,
   CapabilityConsumption,
@@ -14,6 +14,7 @@ import {
   IntentInterpretation,
   postJson,
   ProjectBlueprint,
+  ProjectGeneration,
   ProjectWorkspace,
   RuntimeStatus,
 } from "./lib/api";
@@ -714,6 +715,12 @@ function HumanConsolePreview() {
   const [workspace, setWorkspace] = useState<ProjectWorkspace | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [workspacing, setWorkspacing] = useState(false);
+  const [generation, setGeneration] = useState<ProjectGeneration | null>(null);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generationApproved, setGenerationApproved] = useState(false);
+  const [generationAttempt, setGenerationAttempt] = useState(0);
+  const generationRequestRef = useRef("");
   const [isFocused, setIsFocused] = useState(false);
   const quickActions = [
     ["Crear una app", "Quiero construir una app interna para coordinar operaciones, usuarios, reportes y aprobaciones."],
@@ -780,6 +787,11 @@ function HumanConsolePreview() {
       setWorkspace(null);
       setWorkspaceError(null);
       setWorkspacing(false);
+      setGeneration(null);
+      setGenerationError(null);
+      setGenerating(false);
+      setGenerationApproved(false);
+      setGenerationAttempt(0);
       return;
     }
     let active = true;
@@ -791,6 +803,11 @@ function HumanConsolePreview() {
     setWorkspace(null);
     setWorkspaceError(null);
     setWorkspacing(false);
+    setGeneration(null);
+    setGenerationError(null);
+    setGenerating(false);
+    setGenerationApproved(false);
+    setGenerationAttempt(0);
     const timer = window.setTimeout(() => {
       postJson<IntentInterpretation>("/intent/interpret", { sender: "ceo", recipient: "forja", input })
         .then((result) => {
@@ -803,6 +820,7 @@ function HumanConsolePreview() {
           setInterpretationError(error.message);
           setBlueprint(null);
           setWorkspace(null);
+          setGeneration(null);
         })
         .finally(() => {
           if (active) {
@@ -824,6 +842,9 @@ function HumanConsolePreview() {
       setWorkspace(null);
       setWorkspaceError(null);
       setWorkspacing(false);
+      setGeneration(null);
+      setGenerationError(null);
+      setGenerating(false);
       return;
     }
     let active = true;
@@ -839,6 +860,7 @@ function HumanConsolePreview() {
         setBlueprint(null);
         setBlueprintError(error.message);
         setWorkspace(null);
+        setGeneration(null);
       })
       .finally(() => {
         if (active) {
@@ -855,6 +877,9 @@ function HumanConsolePreview() {
       setWorkspace(null);
       setWorkspaceError(null);
       setWorkspacing(false);
+      setGeneration(null);
+      setGenerationError(null);
+      setGenerating(false);
       return;
     }
     let active = true;
@@ -870,6 +895,7 @@ function HumanConsolePreview() {
           if (!active) return;
           setWorkspace(null);
           setWorkspaceError(error.message);
+          setGeneration(null);
         })
         .finally(() => {
           if (active) {
@@ -883,10 +909,47 @@ function HumanConsolePreview() {
     };
   }, [blueprint]);
 
+  useEffect(() => {
+    if (!blueprint || !workspace || !generationApproved || generationAttempt < 1) {
+      setGenerating(false);
+      return;
+    }
+    const requestKey = `${workspace.workspace_id}:${generationAttempt}`;
+    if (generationRequestRef.current === requestKey) {
+      return;
+    }
+    generationRequestRef.current = requestKey;
+    let active = true;
+    setGenerating(true);
+    setGenerationError(null);
+    postJson<ProjectGeneration>("/generation/files", { blueprint, workspace, manual_approval: true })
+      .then((result) => {
+        if (!active) return;
+        setGeneration(result);
+      })
+      .catch((error: Error) => {
+        if (!active) return;
+        setGeneration(null);
+        setGenerationError(error.message);
+      })
+      .finally(() => {
+        if (active) {
+          setGenerating(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [blueprint, workspace, generationApproved, generationAttempt]);
+
   const chooseQuickAction = (nextCommand: string) => {
     setCommandText(nextCommand);
     setIsFocused(true);
     setVisualState("THINKING");
+    setGenerationApproved(false);
+    setGenerationAttempt(0);
+    setGeneration(null);
+    setGenerationError(null);
   };
 
   const simulateVisualPlan = () => {
@@ -894,6 +957,8 @@ function HumanConsolePreview() {
       setVisualState("IDLE");
       return;
     }
+    setGenerationApproved(true);
+    setGenerationAttempt((attempt) => attempt + 1);
     setVisualState("BUILDING");
     window.setTimeout(() => setVisualState("WAITING_APPROVAL"), 760);
     window.setTimeout(() => setVisualState("READY"), 1650);
@@ -921,6 +986,12 @@ function HumanConsolePreview() {
   const workspacePath = workspace?.logical_path ?? ".forja/workspaces/pending";
   const workspaceDirs = workspace?.directories.slice(0, 6) ?? [];
   const workspaceFiles = workspace?.files ?? [];
+  const generationState = generationError
+    ? "ERROR"
+    : generation?.status.toUpperCase() ?? (generating ? "GENERATING" : generationApproved ? "REQUESTED" : "AWAITING APPROVAL");
+  const generatedFiles = generation?.generated_files.slice(0, 10) ?? [];
+  const generatedDirs = generation?.generated_directories.slice(0, 6) ?? [];
+  const generatedModules = generation?.modules_created ?? [];
 
   return (
     <main className={`human-preview-shell state-${visualState.toLowerCase()}`}>
@@ -1053,11 +1124,34 @@ function HumanConsolePreview() {
                   <div className="human-classification" aria-label="Archivos base del workspace">
                     {workspaceFiles.map((file) => <span key={file}>FILE: {file}</span>)}
                   </div>
+                  <div className="human-classification" aria-label="Generacion controlada">
+                    <span>GENERATION: {generationState}</span>
+                    {generation ? <span>GEN APPROVAL: {generation.approval_status.toUpperCase()}</span> : null}
+                    {generation?.reason ? <span>GEN REASON: {generation.reason}</span> : null}
+                  </div>
+                  {generation ? (
+                    <>
+                      <div className="human-classification" aria-label="Modulos generados">
+                        {generatedModules.map((module) => <span key={module}>CREATED MODULE: {module}</span>)}
+                      </div>
+                      <div className="human-classification" aria-label="Estructura generada">
+                        {generatedDirs.map((directory) => <span key={directory}>GEN FOLDER: {directory}/</span>)}
+                      </div>
+                      <div className="human-classification" aria-label="Archivos generados">
+                        {generatedFiles.map((file) => <span key={file}>GEN FILE: {file}</span>)}
+                      </div>
+                    </>
+                  ) : null}
                 </>
               ) : null}
               {workspaceError ? (
                 <div className="human-classification" aria-label="Workspace bloqueado">
                   <span>WORKSPACE ERROR: {workspaceError}</span>
+                </div>
+              ) : null}
+              {generationError ? (
+                <div className="human-classification" aria-label="Generacion bloqueada">
+                  <span>GENERATION ERROR: {generationError}</span>
                 </div>
               ) : null}
             </>
