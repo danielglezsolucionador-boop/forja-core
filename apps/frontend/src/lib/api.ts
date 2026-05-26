@@ -116,6 +116,47 @@ export type ProjectGeneration = {
   timeline: Array<{ timestamp: string; event: string; detail: string }>;
   created_at: string;
 };
+export type GovernedExecution = {
+  execution_id: string;
+  request_id: string;
+  idempotency_key: string;
+  sender: IntentSender;
+  recipient: "forja";
+  response_target: string;
+  raw_input: string;
+  normalized_input: string;
+  request_type: string;
+  domain: string;
+  project_name: string | null;
+  risk_level: IntentInterpretation["risk_level"] | null;
+  state:
+    | "pending"
+    | "interpreted"
+    | "blueprint_ready"
+    | "awaiting_approval"
+    | "approved"
+    | "generating"
+    | "completed"
+    | "blocked"
+    | "failed"
+    | "duplicate_blocked";
+  reason: string | null;
+  approval_required: boolean;
+  approval_status: "not_required" | "requested" | "approved" | "rejected" | "blocked";
+  duplicate_of: string | null;
+  workspace_isolated: boolean;
+  parallel_execution_blocked: boolean;
+  governance_bypass_blocked: boolean;
+  interpretation: IntentInterpretation | null;
+  blueprint: ProjectBlueprint | null;
+  workspace: ProjectWorkspace | null;
+  generation: ProjectGeneration | null;
+  outputs: Array<{ kind: string; label: string; logical_path: string; status: string; source: string }>;
+  timeline: Array<{ timestamp: string; event: string; detail: string }>;
+  audit_events: Array<{ event_type: string; actor: string; risk: string; timestamp: string }>;
+  created_at: string;
+  updated_at: string;
+};
 export type CapabilityStatus = "pending" | "approved" | "rejected" | "unavailable";
 export type CapabilityKind =
   | "more_context"

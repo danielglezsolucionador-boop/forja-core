@@ -10,6 +10,7 @@ import {
   CreatorOutput,
   CreatorSender,
   fetchJson,
+  GovernedExecution,
   HealthResponse,
   IntentInterpretation,
   postJson,
@@ -718,9 +719,10 @@ function HumanConsolePreview() {
   const [generation, setGeneration] = useState<ProjectGeneration | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [generationApproved, setGenerationApproved] = useState(false);
-  const [generationAttempt, setGenerationAttempt] = useState(0);
-  const generationRequestRef = useRef("");
+  const [execution, setExecution] = useState<GovernedExecution | null>(null);
+  const [executionError, setExecutionError] = useState<string | null>(null);
+  const [executing, setExecuting] = useState(false);
+  const executionRequestRef = useRef({ input: "", requestId: "" });
   const [isFocused, setIsFocused] = useState(false);
   const quickActions = [
     ["Crear una app", "Quiero construir una app interna para coordinar operaciones, usuarios, reportes y aprobaciones."],
@@ -745,6 +747,27 @@ function HumanConsolePreview() {
     ["04", "Blueprint listo", "Deja una ruta clara para aprobación futura, sin ejecutar construcción real."]
   ];
   const activeState = states.find(([state]) => state === visualState) ?? states[0];
+
+  const getExecutionRequestId = (input: string) => {
+    if (executionRequestRef.current.input !== input) {
+      const nonce = `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+      executionRequestRef.current = { input, requestId: `console-${nonce}` };
+    }
+    return executionRequestRef.current.requestId;
+  };
+
+  const applyGovernedExecution = (record: GovernedExecution) => {
+    setExecution(record);
+    setExecutionError(null);
+    setInterpretation(record.interpretation);
+    setBlueprint(record.blueprint);
+    setWorkspace(record.workspace);
+    setGeneration(record.generation);
+    setInterpretationError(null);
+    setBlueprintError(null);
+    setWorkspaceError(null);
+    setGenerationError(null);
+  };
 
   const handleCommandChange = (nextCommand: string) => {
     setCommandText(nextCommand);
@@ -790,11 +813,13 @@ function HumanConsolePreview() {
       setGeneration(null);
       setGenerationError(null);
       setGenerating(false);
-      setGenerationApproved(false);
-      setGenerationAttempt(0);
+      setExecution(null);
+      setExecutionError(null);
+      setExecuting(false);
       return;
     }
     let active = true;
+    const sourceRequestId = getExecutionRequestId(input);
     setInterpreting(true);
     setInterpretationError(null);
     setBlueprint(null);
@@ -806,16 +831,19 @@ function HumanConsolePreview() {
     setGeneration(null);
     setGenerationError(null);
     setGenerating(false);
-    setGenerationApproved(false);
-    setGenerationAttempt(0);
+    setExecution(null);
+    setExecutionError(null);
+    setExecuting(true);
     const timer = window.setTimeout(() => {
-      postJson<IntentInterpretation>("/intent/interpret", { sender: "ceo", recipient: "forja", input })
+      postJson<GovernedExecution>("/execution/start", { sender: "ceo", recipient: "forja", input, source_request_id: sourceRequestId })
         .then((result) => {
           if (!active) return;
-          setInterpretation(result);
+          applyGovernedExecution(result);
         })
         .catch((error: Error) => {
           if (!active) return;
+          setExecution(null);
+          setExecutionError(error.message);
           setInterpretation(null);
           setInterpretationError(error.message);
           setBlueprint(null);
@@ -825,6 +853,9 @@ function HumanConsolePreview() {
         .finally(() => {
           if (active) {
             setInterpreting(false);
+            setBlueprinting(false);
+            setWorkspacing(false);
+            setExecuting(false);
           }
         });
     }, 420);
@@ -835,6 +866,10 @@ function HumanConsolePreview() {
   }, [commandText]);
 
   useEffect(() => {
+    if (execution) {
+      setBlueprinting(false);
+      return;
+    }
     if (!interpretation) {
       setBlueprint(null);
       setBlueprintError(null);
@@ -870,9 +905,13 @@ function HumanConsolePreview() {
     return () => {
       active = false;
     };
-  }, [interpretation]);
+  }, [interpretation, execution]);
 
   useEffect(() => {
+    if (execution) {
+      setWorkspacing(false);
+      return;
+    }
     if (!blueprint) {
       setWorkspace(null);
       setWorkspaceError(null);
@@ -907,47 +946,23 @@ function HumanConsolePreview() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [blueprint]);
+  }, [blueprint, execution]);
 
   useEffect(() => {
-    if (!blueprint || !workspace || !generationApproved || generationAttempt < 1) {
+    if (execution) {
       setGenerating(false);
       return;
     }
-    const requestKey = `${workspace.workspace_id}:${generationAttempt}`;
-    if (generationRequestRef.current === requestKey) {
-      return;
-    }
-    generationRequestRef.current = requestKey;
-    let active = true;
-    setGenerating(true);
-    setGenerationError(null);
-    postJson<ProjectGeneration>("/generation/files", { blueprint, workspace, manual_approval: true })
-      .then((result) => {
-        if (!active) return;
-        setGeneration(result);
-      })
-      .catch((error: Error) => {
-        if (!active) return;
-        setGeneration(null);
-        setGenerationError(error.message);
-      })
-      .finally(() => {
-        if (active) {
-          setGenerating(false);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [blueprint, workspace, generationApproved, generationAttempt]);
+    setGenerating(false);
+  }, [execution]);
 
   const chooseQuickAction = (nextCommand: string) => {
     setCommandText(nextCommand);
     setIsFocused(true);
     setVisualState("THINKING");
-    setGenerationApproved(false);
-    setGenerationAttempt(0);
+    executionRequestRef.current = { input: "", requestId: "" };
+    setExecution(null);
+    setExecutionError(null);
     setGeneration(null);
     setGenerationError(null);
   };
@@ -957,17 +972,44 @@ function HumanConsolePreview() {
       setVisualState("IDLE");
       return;
     }
-    setGenerationApproved(true);
-    setGenerationAttempt((attempt) => attempt + 1);
+    if (execution?.state === "awaiting_approval") {
+      setGenerating(true);
+      setExecutionError(null);
+      postJson<GovernedExecution>(`/execution/${execution.execution_id}/approval`, { decision: "approve", decided_by: "ceo" })
+        .then((result) => {
+          applyGovernedExecution(result);
+        })
+        .catch((error: Error) => {
+          setExecutionError(error.message);
+          setGenerationError(error.message);
+        })
+        .finally(() => setGenerating(false));
+    }
     setVisualState("BUILDING");
     window.setTimeout(() => setVisualState("WAITING_APPROVAL"), 760);
     window.setTimeout(() => setVisualState("READY"), 1650);
   };
 
+  const rejectGovernedExecution = () => {
+    if (!execution || execution.state !== "awaiting_approval") return;
+    setGenerating(true);
+    setExecutionError(null);
+    postJson<GovernedExecution>(`/execution/${execution.execution_id}/approval`, { decision: "reject", decided_by: "ceo" })
+      .then((result) => {
+        applyGovernedExecution(result);
+        setVisualState("WAITING_APPROVAL");
+      })
+      .catch((error: Error) => {
+        setExecutionError(error.message);
+      })
+      .finally(() => setGenerating(false));
+  };
+
   const intentType = interpretation?.request_type.toUpperCase() ?? (interpreting ? "READING" : "PENDING");
   const intentDomain = interpretation?.domain.toUpperCase() ?? "GENERAL";
-  const intentRisk = interpretationError ? "ERROR" : interpretation?.risk_level ?? "CONTROLLED";
-  const intentApproval = interpretation ? (interpretation.requires_approval ? "REQUIRED" : "NOT REQUIRED") : "PENDING";
+  const executionState = executionError ? "ERROR" : execution?.state.toUpperCase() ?? (executing ? "GOVERNING" : "PENDING");
+  const intentRisk = interpretationError ? "ERROR" : execution?.risk_level ?? interpretation?.risk_level ?? "CONTROLLED";
+  const intentApproval = execution ? execution.approval_status.toUpperCase() : interpretation ? (interpretation.requires_approval ? "REQUIRED" : "NOT REQUIRED") : "PENDING";
   const intentTarget = interpretation?.response_target.toUpperCase() ?? "CEO";
   const blueprintTitle = blueprint?.project_name ?? (blueprinting ? "Preparando blueprint tecnico." : "FORJA organiza la intencion como una estrategia de construccion.");
   const blueprintObjective = blueprintError
@@ -982,16 +1024,23 @@ function HumanConsolePreview() {
   const blueprintModules = blueprint?.modules.slice(0, 4) ?? [];
   const blueprintRisks = blueprint?.risks.slice(0, 2).map((risk) => `${risk.level}: ${risk.title}`) ?? [];
   const blueprintCriteria = blueprint?.validation_criteria.slice(0, 2) ?? [];
-  const workspaceState = workspaceError ? "BLOCKED" : workspace?.status.toUpperCase() ?? (workspacing ? "CREATING" : "PENDING");
+  const workspaceState = workspaceError
+    ? "BLOCKED"
+    : workspace?.status.toUpperCase() ?? (execution?.state === "awaiting_approval" ? "AWAITING_APPROVAL" : workspacing ? "CREATING" : "PENDING");
   const workspacePath = workspace?.logical_path ?? ".forja/workspaces/pending";
   const workspaceDirs = workspace?.directories.slice(0, 6) ?? [];
   const workspaceFiles = workspace?.files ?? [];
   const generationState = generationError
     ? "ERROR"
-    : generation?.status.toUpperCase() ?? (generating ? "GENERATING" : generationApproved ? "REQUESTED" : "AWAITING APPROVAL");
+    : generation?.status.toUpperCase() ?? (generating ? "GENERATING" : execution?.state === "completed" ? "NOT_REQUIRED" : "AWAITING_APPROVAL");
   const generatedFiles = generation?.generated_files.slice(0, 10) ?? [];
   const generatedDirs = generation?.generated_directories.slice(0, 6) ?? [];
   const generatedModules = generation?.modules_created ?? [];
+  const executionTimeline = execution?.timeline.slice(-7) ?? [];
+  const executionOutputs = execution?.outputs.slice(0, 18) ?? [];
+  const executionAudit = execution?.audit_events.slice(-6) ?? [];
+  const canApproveExecution = execution?.state === "awaiting_approval" && !generating;
+  const canRejectExecution = execution?.state === "awaiting_approval" && !generating;
 
   return (
     <main className={`human-preview-shell state-${visualState.toLowerCase()}`}>
@@ -1058,7 +1107,12 @@ function HumanConsolePreview() {
               <button type="button" key={action} onClick={() => chooseQuickAction(nextCommand)}>{action}</button>
             ))}
           </div>
-          <button className="human-primary-button" type="button" onClick={simulateVisualPlan}>Generar plan visual</button>
+          <button className="human-primary-button" type="button" onClick={simulateVisualPlan} disabled={generating || executing || !commandText.trim()}>
+            {canApproveExecution ? "Aprobar ejecucion" : execution?.state === "completed" ? "Ejecucion lista" : "Generar plan visual"}
+          </button>
+          <div className="human-quick-actions" aria-label="Controles de aprobacion">
+            <button type="button" onClick={rejectGovernedExecution} disabled={!canRejectExecution}>Rechazar</button>
+          </div>
         </section>
       </section>
 
@@ -1084,6 +1138,8 @@ function HumanConsolePreview() {
             <span>RISK: {intentRisk}</span>
             <span>APPROVAL: {intentApproval}</span>
             <span>TARGET: {intentTarget}</span>
+            <span>EXECUTION: {executionState}</span>
+            {execution?.reason ? <span>REASON: {execution.reason}</span> : null}
           </div>
         </article>
 
@@ -1100,7 +1156,7 @@ function HumanConsolePreview() {
               </div>
             ))}
           </div>
-          {blueprint ? (
+          {blueprint || executionError ? (
             <>
               <div className="human-classification" aria-label="Modulos del blueprint">
                 {blueprintModules.map((module) => <span key={module}>MODULE: {module}</span>)}
@@ -1144,6 +1200,24 @@ function HumanConsolePreview() {
                   ) : null}
                 </>
               ) : null}
+              {execution ? (
+                <>
+                  <div className="human-classification" aria-label="Estado de ejecucion gobernada">
+                    <span>EXEC STATE: {executionState}</span>
+                    <span>LOCKING: {execution.parallel_execution_blocked ? "PARALLEL_BLOCKED" : "REQUEST_LOCKED"}</span>
+                    <span>BYPASS: {execution.governance_bypass_blocked ? "BLOCKED" : "OPEN"}</span>
+                  </div>
+                  <div className="human-classification" aria-label="Timeline de ejecucion">
+                    {executionTimeline.map((event) => <span key={`${event.timestamp}-${event.event}`}>TIMELINE: {event.event}</span>)}
+                  </div>
+                  <div className="human-classification" aria-label="Outputs de ejecucion">
+                    {executionOutputs.map((output) => <span key={`${output.kind}-${output.logical_path}`}>OUTPUT: {output.label}</span>)}
+                  </div>
+                  <div className="human-classification" aria-label="Audit basico de ejecucion">
+                    {executionAudit.map((event) => <span key={`${event.timestamp}-${event.event_type}`}>AUDIT: {event.event_type}</span>)}
+                  </div>
+                </>
+              ) : null}
               {workspaceError ? (
                 <div className="human-classification" aria-label="Workspace bloqueado">
                   <span>WORKSPACE ERROR: {workspaceError}</span>
@@ -1152,6 +1226,11 @@ function HumanConsolePreview() {
               {generationError ? (
                 <div className="human-classification" aria-label="Generacion bloqueada">
                   <span>GENERATION ERROR: {generationError}</span>
+                </div>
+              ) : null}
+              {executionError ? (
+                <div className="human-classification" aria-label="Ejecucion bloqueada">
+                  <span>EXECUTION ERROR: {executionError}</span>
                 </div>
               ) : null}
             </>
@@ -1164,7 +1243,7 @@ function HumanConsolePreview() {
           <summary>Panel técnico oculto para el CEO</summary>
           <div>
             <p>Runtime, providers, audit stream, output manager, capability system y execution logs quedan detrás de esta capa para no dominar la experiencia principal.</p>
-            <span>Esta preview no cambia backend, governance, execution engine, output manager ni capability system.</span>
+            <span>Esta consola usa la ejecucion gobernada sin activar IA externa, deploys ni comandos fuera del workspace.</span>
           </div>
         </details>
       </section>
