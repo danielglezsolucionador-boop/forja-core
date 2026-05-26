@@ -703,10 +703,10 @@ function useHashRoute() {
 }
 
 function HumanConsolePreview() {
-  type HumanVisualState = "IDLE" | "THINKING" | "PLANNING" | "ANALYZING" | "BUILDING" | "WAITING_APPROVAL" | "READY";
+  type HumanVisualState = "IDLE" | "INTERPRETING" | "PLANNING" | "AWAITING_APPROVAL" | "GENERATING" | "VALIDATING" | "COMPLETED" | "BLOCKED" | "FAILED";
   const defaultCommand = "Quiero construir un dashboard ejecutivo para ver ventas, margen, alertas y tareas pendientes por equipo.";
   const [commandText, setCommandText] = useState(defaultCommand);
-  const [visualState, setVisualState] = useState<HumanVisualState>("READY");
+  const [visualState, setVisualState] = useState<HumanVisualState>("PLANNING");
   const [interpretation, setInterpretation] = useState<IntentInterpretation | null>(null);
   const [interpretationError, setInterpretationError] = useState<string | null>(null);
   const [interpreting, setInterpreting] = useState(false);
@@ -725,26 +725,28 @@ function HumanConsolePreview() {
   const executionRequestRef = useRef({ input: "", requestId: "" });
   const [isFocused, setIsFocused] = useState(false);
   const quickActions = [
-    ["Crear una app", "Quiero construir una app interna para coordinar operaciones, usuarios, reportes y aprobaciones."],
-    ["Diseñar una API", "Quiero diseñar una API segura para integrar clientes, pagos, permisos y auditoría."],
-    ["Armar un dashboard", defaultCommand],
-    ["Crear workflow", "Quiero crear un workflow operativo con pasos, responsables, alertas y control humano."],
+    ["Crear una app", "creame una app de inventario"],
+    ["Diseñar una API", "creame una API para clientes"],
+    ["Armar un dashboard", "creame un dashboard financiero"],
+    ["Crear workflow", "creame un workflow WhatsApp"],
     ["Integrar sistema", "Quiero integrar mi sistema actual con un servicio externo sin romper seguridad ni trazabilidad."]
   ];
   const states: Array<[HumanVisualState, string, string]> = [
-    ["IDLE", "En reposo", "FORJA espera una intención."],
-    ["THINKING", "Escuchando", "La cabina enfoca el pedido."],
-    ["PLANNING", "Planeando", "Aparece una estrategia modular."],
-    ["ANALYZING", "Analizando", "Se separan alcance y riesgos."],
-    ["BUILDING", "Modelando", "Se simula la construcción visual."],
-    ["WAITING_APPROVAL", "Control humano", "Nada avanza sin aprobación."],
-    ["READY", "Listo", "Plan visual preparado."]
+    ["IDLE", "Idle", "FORJA espera una orden humana."],
+    ["INTERPRETING", "Interpreting", "La intencion entra al parser real."],
+    ["PLANNING", "Planning", "Builder Core prepara blueprint y riesgo."],
+    ["AWAITING_APPROVAL", "Awaiting approval", "La ejecucion espera decision humana."],
+    ["GENERATING", "Generating", "Workspace y archivos se generan de forma gobernada."],
+    ["VALIDATING", "Validating", "FORJA registra outputs, timeline y audit."],
+    ["COMPLETED", "Completed", "La ejecucion termino con outputs reales."],
+    ["BLOCKED", "Blocked", "Governance bloqueo una accion insegura."],
+    ["FAILED", "Failed", "La operacion fallo de forma controlada."]
   ];
   const plan = [
-    ["01", "Intención humana", "FORJA traduce el pedido en objetivo, contexto, entregables y restricciones."],
-    ["02", "Mapa de sistema", "Propone módulos, pantallas, datos, API y puntos de integración."],
-    ["03", "Estrategia controlada", "Ordena riesgos, dependencias y decisiones que requieren control humano."],
-    ["04", "Blueprint listo", "Deja una ruta clara para aprobación futura, sin ejecutar construcción real."]
+    ["01", "Intent Analysis", "FORJA interpreta la orden, normaliza la entrada y fija el target de respuesta."],
+    ["02", "Blueprint", "Builder Core propone stack, modulos, pantallas, endpoints y modelo de datos."],
+    ["03", "Risk Evaluation", "Governance clasifica riesgo, approval y restricciones antes de escribir."],
+    ["04", "Real Execution", "Workspace, archivos, outputs, timeline y audit quedan bajo control gobernado."]
   ];
   const activeState = states.find(([state]) => state === visualState) ?? states[0];
 
@@ -756,8 +758,19 @@ function HumanConsolePreview() {
     return executionRequestRef.current.requestId;
   };
 
+  const visualStateFromExecution = (record: GovernedExecution): HumanVisualState => {
+    if (record.state === "awaiting_approval") return "AWAITING_APPROVAL";
+    if (record.state === "approved" || record.state === "generating") return "GENERATING";
+    if (record.state === "completed") return "COMPLETED";
+    if (record.state === "failed") return "FAILED";
+    if (record.state === "blocked" || record.state === "duplicate_blocked") return "BLOCKED";
+    if (record.state === "blueprint_ready") return "PLANNING";
+    return "INTERPRETING";
+  };
+
   const applyGovernedExecution = (record: GovernedExecution) => {
     setExecution(record);
+    setVisualState(visualStateFromExecution(record));
     setExecutionError(null);
     setInterpretation(record.interpretation);
     setBlueprint(record.blueprint);
@@ -772,13 +785,13 @@ function HumanConsolePreview() {
   const handleCommandChange = (nextCommand: string) => {
     setCommandText(nextCommand);
     setIsFocused(true);
-    setVisualState(nextCommand.trim() ? "THINKING" : "IDLE");
+    setVisualState(nextCommand.trim() ? "INTERPRETING" : "IDLE");
   };
 
   const handleCommandFocus = () => {
     setIsFocused(true);
     if (commandText.trim()) {
-      setVisualState("THINKING");
+      setVisualState("INTERPRETING");
     }
   };
 
@@ -789,12 +802,10 @@ function HumanConsolePreview() {
       return;
     }
     if (!isFocused) return;
-    setVisualState("THINKING");
+    setVisualState("INTERPRETING");
     const planningTimer = window.setTimeout(() => setVisualState("PLANNING"), 420);
-    const analyzingTimer = window.setTimeout(() => setVisualState("ANALYZING"), 1150);
     return () => {
       window.clearTimeout(planningTimer);
-      window.clearTimeout(analyzingTimer);
     };
   }, [commandText, isFocused]);
 
@@ -959,7 +970,7 @@ function HumanConsolePreview() {
   const chooseQuickAction = (nextCommand: string) => {
     setCommandText(nextCommand);
     setIsFocused(true);
-    setVisualState("THINKING");
+    setVisualState("INTERPRETING");
     executionRequestRef.current = { input: "", requestId: "" };
     setExecution(null);
     setExecutionError(null);
@@ -967,39 +978,56 @@ function HumanConsolePreview() {
     setGenerationError(null);
   };
 
-  const simulateVisualPlan = () => {
+  const runPrimaryExecutionAction = () => {
     if (!commandText.trim()) {
       setVisualState("IDLE");
       return;
     }
     if (execution?.state === "awaiting_approval") {
       setGenerating(true);
+      setVisualState("GENERATING");
       setExecutionError(null);
       postJson<GovernedExecution>(`/execution/${execution.execution_id}/approval`, { decision: "approve", decided_by: "ceo" })
         .then((result) => {
+          setVisualState("VALIDATING");
           applyGovernedExecution(result);
         })
         .catch((error: Error) => {
+          setVisualState("FAILED");
           setExecutionError(error.message);
           setGenerationError(error.message);
         })
         .finally(() => setGenerating(false));
+      return;
     }
-    setVisualState("BUILDING");
-    window.setTimeout(() => setVisualState("WAITING_APPROVAL"), 760);
-    window.setTimeout(() => setVisualState("READY"), 1650);
+    if (execution?.state === "completed") {
+      const input = commandText.trim();
+      const sourceRequestId = getExecutionRequestId(input);
+      setExecuting(true);
+      setVisualState("VALIDATING");
+      postJson<GovernedExecution>("/execution/start", { sender: "ceo", recipient: "forja", input, source_request_id: sourceRequestId })
+        .then((result) => {
+          applyGovernedExecution(result);
+        })
+        .catch((error: Error) => {
+          setVisualState("FAILED");
+          setExecutionError(error.message);
+        })
+        .finally(() => setExecuting(false));
+    }
   };
 
   const rejectGovernedExecution = () => {
     if (!execution || execution.state !== "awaiting_approval") return;
     setGenerating(true);
+    setVisualState("VALIDATING");
     setExecutionError(null);
     postJson<GovernedExecution>(`/execution/${execution.execution_id}/approval`, { decision: "reject", decided_by: "ceo" })
       .then((result) => {
         applyGovernedExecution(result);
-        setVisualState("WAITING_APPROVAL");
       })
       .catch((error: Error) => {
+        setVisualState("FAILED");
         setExecutionError(error.message);
       })
       .finally(() => setGenerating(false));
@@ -1039,12 +1067,105 @@ function HumanConsolePreview() {
   const executionTimeline = execution?.timeline.slice(-7) ?? [];
   const executionOutputs = execution?.outputs.slice(0, 18) ?? [];
   const executionAudit = execution?.audit_events.slice(-6) ?? [];
+  const generatedFileLabels = generatedFiles.map((file) => file.split("/").pop() ?? file);
+  const outputLabels = executionOutputs.map((output) => output.label);
   const canApproveExecution = execution?.state === "awaiting_approval" && !generating;
   const canRejectExecution = execution?.state === "awaiting_approval" && !generating;
+  const canRetryDuplicate = execution?.state === "completed" && !generating && !executing;
+  const primaryActionLabel = canApproveExecution
+    ? "Aprobar y construir"
+    : canRetryDuplicate
+      ? "Reintentar orden"
+      : execution?.state === "duplicate_blocked"
+        ? "Duplicado bloqueado"
+        : execution?.state === "blocked"
+          ? "Ejecucion bloqueada"
+          : execution?.state === "failed"
+            ? "Validacion fallida"
+            : executing || interpreting
+              ? "Analizando orden"
+              : "Esperando approval";
+  const operationalSections = [
+    {
+      title: "Intent Analysis",
+      status: interpretation ? "READY" : interpreting ? "INTERPRETING" : "IDLE",
+      items: [
+        `TYPE: ${intentType}`,
+        `DOMAIN: ${intentDomain}`,
+        `CONFIDENCE: ${interpretation ? Math.round(interpretation.confidence * 100) : 0}%`,
+        `TARGET: ${intentTarget}`,
+      ],
+    },
+    {
+      title: "Blueprint",
+      status: blueprint ? "READY" : blueprinting ? "PLANNING" : "PENDING",
+      items: [
+        `PROJECT: ${blueprint?.project_name ?? "pending"}`,
+        `MODULES: ${blueprint?.modules.length ?? 0}`,
+        `SCREENS: ${blueprint?.screens.length ?? 0}`,
+        `ENDPOINTS: ${blueprint?.endpoints.length ?? 0}`,
+      ],
+    },
+    {
+      title: "Risk Evaluation",
+      status: String(intentRisk),
+      items: [
+        `RISK: ${intentRisk}`,
+        `APPROVAL: ${intentApproval}`,
+        `BYPASS: ${execution?.governance_bypass_blocked ? "BLOCKED" : "CONTROLLED"}`,
+        `REASON: ${execution?.reason ?? "none"}`,
+      ],
+    },
+    {
+      title: "Approval State",
+      status: execution?.approval_status.toUpperCase() ?? "PENDING",
+      items: [
+        `STATE: ${executionState}`,
+        `REQUIRED: ${execution?.approval_required ? "YES" : "NO"}`,
+        `APPROVE: ${canApproveExecution ? "AVAILABLE" : "LOCKED"}`,
+        `REJECT: ${canRejectExecution ? "AVAILABLE" : "LOCKED"}`,
+      ],
+    },
+    {
+      title: "Workspace Status",
+      status: workspaceState,
+      items: [
+        `WORKSPACE: ${workspaceState}`,
+        `PATH: ${workspacePath}`,
+        `FOLDERS: ${workspaceDirs.length || workspace?.directories.length || 0}`,
+        `ISOLATED: ${execution?.workspace_isolated ?? workspace?.workspace_isolated ?? true}`,
+      ],
+    },
+    {
+      title: "Generated Files",
+      status: generationState,
+      items: generatedFileLabels.length ? generatedFileLabels.map((file) => `FILE: ${file}`) : [`FILES: ${generationState}`],
+    },
+    {
+      title: "Timeline",
+      status: executionTimeline.length ? "LIVE" : "PENDING",
+      items: executionTimeline.length ? executionTimeline.map((event) => event.event) : ["request pending"],
+    },
+    {
+      title: "Outputs",
+      status: outputLabels.length ? "VISIBLE" : "PENDING",
+      items: outputLabels.length ? outputLabels.map((output) => `OUTPUT: ${output}`) : ["outputs pending"],
+    },
+    {
+      title: "Execution Status",
+      status: executionState,
+      items: [
+        `EXECUTION: ${executionState}`,
+        `LOCKING: ${execution?.parallel_execution_blocked ? "PARALLEL_BLOCKED" : "REQUEST_LOCKED"}`,
+        `AUDIT: ${executionAudit.length}`,
+        `UPDATED: ${execution?.updated_at ? "YES" : "NO"}`,
+      ],
+    },
+  ];
 
   return (
     <main className={`human-preview-shell state-${visualState.toLowerCase()}`}>
-      <nav className="human-preview-nav" aria-label="Navegación preview">
+      <nav className="human-preview-nav" aria-label="Navegacion Human Console">
         <a className="human-preview-brand" href="#dashboard" aria-label="Volver al dashboard técnico">
           <span>F</span>
           <strong>FORJA</strong>
@@ -1062,13 +1183,13 @@ function HumanConsolePreview() {
             <span className="human-orbit-line line-b" />
           </div>
           <span className="human-eyebrow">Núcleo operativo</span>
-          <h1>Pídele a FORJA que construya.</h1>
+          <h1>Pidele a FORJA que construya.</h1>
           <p>
-            Sistema operativo de inteligencia para convertir intención humana en arquitectura revisable.
+            Interfaz operacional real para interpretar, aprobar, construir y auditar outputs dentro del workspace seguro.
           </p>
           <div className="human-ops-status" aria-label="Estado operacional visual">
             <span><i />Núcleo activo</span>
-            <span><i />Ejecución bloqueada</span>
+            <span><i />Builder Core real</span>
             <span><i />Control humano</span>
           </div>
         </div>
@@ -1107,8 +1228,8 @@ function HumanConsolePreview() {
               <button type="button" key={action} onClick={() => chooseQuickAction(nextCommand)}>{action}</button>
             ))}
           </div>
-          <button className="human-primary-button" type="button" onClick={simulateVisualPlan} disabled={generating || executing || !commandText.trim()}>
-            {canApproveExecution ? "Aprobar ejecucion" : execution?.state === "completed" ? "Ejecucion lista" : "Generar plan visual"}
+          <button className="human-primary-button" type="button" onClick={runPrimaryExecutionAction} disabled={generating || executing || !commandText.trim() || (!canApproveExecution && !canRetryDuplicate)}>
+            {primaryActionLabel}
           </button>
           <div className="human-quick-actions" aria-label="Controles de aprobacion">
             <button type="button" onClick={rejectGovernedExecution} disabled={!canRejectExecution}>Rechazar</button>
@@ -1124,7 +1245,7 @@ function HumanConsolePreview() {
 
       <section className="human-preview-grid">
         <article className="human-response-card">
-          <span className="human-eyebrow">Blueprint tecnico</span>
+          <span className="human-eyebrow">Builder Core real</span>
           <h2>{blueprintTitle}</h2>
           <p>
             {blueprintObjective}
@@ -1144,7 +1265,7 @@ function HumanConsolePreview() {
         </article>
 
         <article className="human-plan-card">
-          <span className="human-eyebrow">Secuencia de construcción</span>
+          <span className="human-eyebrow">Flujo operacional completo</span>
           <div className="human-plan-list">
             {constructionPlan.map(([number, title, body]) => (
               <div className="human-plan-step" key={number}>
@@ -1154,6 +1275,19 @@ function HumanConsolePreview() {
                   <p>{body}</p>
                 </div>
               </div>
+            ))}
+          </div>
+          <div className="human-real-sections" aria-label="Secciones reales de Human Console">
+            {operationalSections.map((section) => (
+              <section className="human-real-section" key={section.title}>
+                <div className="human-real-section-title">
+                  <span>{section.title}</span>
+                  <strong>{section.status}</strong>
+                </div>
+                <div className="human-classification">
+                  {section.items.map((item) => <span key={`${section.title}-${item}`}>{item}</span>)}
+                </div>
+              </section>
             ))}
           </div>
           {blueprint || executionError ? (
@@ -1535,7 +1669,7 @@ function TechnicalDashboard() {
           </div>
           <div className="command-bar" aria-label="Runtime actions">
             <ActionButton onClick={refreshStatus} loading={refreshing}>Refresh status</ActionButton>
-            <a className="forge-button ghost" href="#human-console-preview">Human Console Preview</a>
+            <a className="forge-button ghost" href="#human-console-preview">Human Console</a>
             <ActionButton variant="ghost" href={API_URL}>Ver backend</ActionButton>
             <ActionButton variant="ghost" href={`${API_URL}/runtime/status`}>Ver runtime</ActionButton>
             <ActionButton variant="ghost" href={`${API_URL}/health`}>Ver health</ActionButton>

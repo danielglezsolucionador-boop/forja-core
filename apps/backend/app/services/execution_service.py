@@ -79,6 +79,9 @@ class GovernedExecutionManager:
             record["timeline"].append(self._event("intent.interpreted", "Intent interpretation completed under governance."))
             self._save_record(record)
 
+            if interpretation["confidence"] <= 0.2:
+                return self._block_validation(record)
+
             blueprint = project_blueprint_service.generate({"interpretation": interpretation, "source_request_id": request_id})
             record.update(
                 {
@@ -255,6 +258,22 @@ class GovernedExecutionManager:
             record["sender"],
             {"execution_id": record["execution_id"], "request_id": record["request_id"], "risk_level": record["risk_level"], "blocked": True},
             risk="high",
+        )
+        self._save_record(record)
+        return self._with_audit_preview(record)
+
+    def _block_validation(self, record: dict) -> dict:
+        record["state"] = "blocked"
+        record["reason"] = "validation_failed"
+        record["approval_status"] = "blocked"
+        record["updated_at"] = utc_now()
+        record["timeline"].append(self._event("validation.failed", "Request confidence is too low for Builder Core execution."))
+        record["timeline"].append(self._event("execution.blocked", "FORJA needs a clearer instruction before creating a workspace."))
+        append_audit_event(
+            "execution_failed",
+            record["sender"],
+            {"execution_id": record["execution_id"], "request_id": record["request_id"], "reason": "validation_failed"},
+            risk="low",
         )
         self._save_record(record)
         return self._with_audit_preview(record)
