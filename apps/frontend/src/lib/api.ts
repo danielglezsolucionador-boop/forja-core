@@ -120,6 +120,32 @@ export type RoutingExecutionPlan = {
   generated_at: string;
 };
 
+export type ExecutionSimulationResult = {
+  execution_id: string;
+  capability_id: string;
+  routing_plan_id: string | null;
+  provider_used: ProviderProfile | null;
+  primary_provider_attempted: ProviderProfile | null;
+  fallback_provider_used: ProviderProfile | null;
+  fallback_chain: ProviderProfile[];
+  capability_type: CapabilityContract["capability_type"];
+  execution_mode: RoutingExecutionPlan["execution_mode"];
+  estimated_tokens: number;
+  estimated_cost: number;
+  estimated_duration: number;
+  simulated_quality: CapabilityContract["reasoning_level"] | null;
+  generated_summary: string;
+  execution_status: "preparing" | "routing" | "executing" | "fallback" | "completed" | "degraded_mode" | "failed";
+  fallback_triggered: boolean;
+  failure_mode: "none" | "provider_unavailable" | "timeout" | "low_confidence" | "provider_disabled" | "forced_failure";
+  estimated_cost_profile: CapabilityContract["cost_priority"] | null;
+  outputs: Array<{ kind: string; label: string; summary: string; status: string; source: string }>;
+  timeline: Array<{ timestamp: string; event: string; detail: string }>;
+  audit_events: Array<{ event_type: string; actor: string; risk: string; timestamp: string }>;
+  external_request_executed: boolean;
+  generated_at: string;
+};
+
 export type CreatorSender = "user" | "cerebro" | "seo" | "system";
 export type CreatorDecision = "approve" | "reject" | "hold";
 export type IntentSender = "ceo" | "cerebro" | "user" | "seo" | "system";

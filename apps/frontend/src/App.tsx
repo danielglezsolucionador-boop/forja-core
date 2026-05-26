@@ -10,6 +10,7 @@ import {
   CreatorDecision,
   CreatorOutput,
   CreatorSender,
+  ExecutionSimulationResult,
   fetchJson,
   GovernedExecution,
   HealthResponse,
@@ -759,6 +760,9 @@ function HumanConsolePreview() {
   const [providerDecision, setProviderDecision] = useState<RoutingExecutionPlan | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
   const [providerMatching, setProviderMatching] = useState(false);
+  const [simulation, setSimulation] = useState<ExecutionSimulationResult | null>(null);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
+  const [simulating, setSimulating] = useState(false);
   const [execution, setExecution] = useState<GovernedExecution | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [executing, setExecuting] = useState(false);
@@ -870,6 +874,9 @@ function HumanConsolePreview() {
       setProviderDecision(null);
       setProviderError(null);
       setProviderMatching(false);
+      setSimulation(null);
+      setSimulationError(null);
+      setSimulating(false);
       setExecution(null);
       setExecutionError(null);
       setExecuting(false);
@@ -894,6 +901,9 @@ function HumanConsolePreview() {
     setProviderDecision(null);
     setProviderError(null);
     setProviderMatching(false);
+    setSimulation(null);
+    setSimulationError(null);
+    setSimulating(false);
     setExecution(null);
     setExecutionError(null);
     setExecuting(true);
@@ -916,6 +926,8 @@ function HumanConsolePreview() {
           setCapabilityError(error.message);
           setProviderDecision(null);
           setProviderError(error.message);
+          setSimulation(null);
+          setSimulationError(error.message);
         })
         .finally(() => {
           if (active) {
@@ -1009,6 +1021,9 @@ function HumanConsolePreview() {
       setProviderDecision(null);
       setProviderError(null);
       setProviderMatching(false);
+      setSimulation(null);
+      setSimulationError(null);
+      setSimulating(false);
       return;
     }
     let active = true;
@@ -1033,6 +1048,36 @@ function HumanConsolePreview() {
       active = false;
     };
   }, [capabilityContract]);
+
+  useEffect(() => {
+    if (!capabilityContract || !providerDecision) {
+      setSimulation(null);
+      setSimulationError(null);
+      setSimulating(false);
+      return;
+    }
+    let active = true;
+    setSimulating(true);
+    setSimulationError(null);
+    postJson<ExecutionSimulationResult>("/provider-execution/simulate", { contract: capabilityContract, routing_plan: providerDecision })
+      .then((result) => {
+        if (!active) return;
+        setSimulation(result);
+      })
+      .catch((error: Error) => {
+        if (!active) return;
+        setSimulation(null);
+        setSimulationError(error.message);
+      })
+      .finally(() => {
+        if (active) {
+          setSimulating(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [capabilityContract, providerDecision]);
 
   useEffect(() => {
     if (execution) {
@@ -1096,6 +1141,9 @@ function HumanConsolePreview() {
     setCapabilityError(null);
     setProviderDecision(null);
     setProviderError(null);
+    setSimulation(null);
+    setSimulationError(null);
+    setSimulating(false);
   };
 
   const runPrimaryExecutionAction = () => {
@@ -1176,6 +1224,20 @@ function HumanConsolePreview() {
   const providerReason = providerError ?? providerDecision?.routing_reason ?? "Capability routing awaits a capability contract.";
   const providerReasonShort = providerReason.length > 118 ? `${providerReason.slice(0, 115)}...` : providerReason;
   const providerTimeline = providerDecision?.timeline.slice(-4) ?? [];
+  const simulationState = simulationError
+    ? "FAILED"
+    : simulation?.execution_status.toUpperCase().replace(/_/g, " ") ?? (simulating ? "EXECUTING" : providerDecision ? "PREPARING" : "PENDING");
+  const simulationProvider = simulation?.provider_used?.provider_name ?? (simulating ? providerName : "PENDING");
+  const simulationFallback = simulation ? (simulation.fallback_triggered ? "YES" : "NO") : "PENDING";
+  const simulationQuality = simulation?.simulated_quality?.toUpperCase() ?? "PENDING";
+  const simulationCost = simulation ? `$${simulation.estimated_cost.toFixed(4)}` : "PENDING";
+  const simulationDuration = simulation ? `${simulation.estimated_duration}s` : "PENDING";
+  const simulationTokens = simulation ? String(simulation.estimated_tokens) : "PENDING";
+  const simulationSummary = simulationError ?? simulation?.generated_summary ?? "Simulated provider execution awaits routing.";
+  const simulationSummaryShort = simulationSummary.length > 118 ? `${simulationSummary.slice(0, 115)}...` : simulationSummary;
+  const simulationTimeline = simulation?.timeline.slice(-5) ?? [];
+  const simulationOutputs = simulation?.outputs ?? [];
+  const simulationAudit = simulation?.audit_events.slice(-5) ?? [];
   const blueprintTitle = blueprint?.project_name ?? (blueprinting ? "Preparando blueprint tecnico." : "FORJA organiza la intencion como una estrategia de construccion.");
   const blueprintObjective = blueprintError
     ? `Blueprint error: ${blueprintError}`
@@ -1275,6 +1337,20 @@ function HumanConsolePreview() {
         `ESTIMATED COST: ${providerCost}`,
         `ROUTING CONFIDENCE: ${providerConfidence}`,
         `FALLBACK CHAIN: ${providerFallback}`,
+      ],
+    },
+    {
+      title: "Simulated Provider Execution",
+      status: simulationState,
+      items: [
+        `PROVIDER EXECUTING: ${simulationProvider}`,
+        `FALLBACK ACTIVATED: ${simulationFallback}`,
+        `SIMULATED QUALITY: ${simulationQuality}`,
+        `SIMULATED COST: ${simulationCost}`,
+        `SIMULATED DURATION: ${simulationDuration}`,
+        `SIMULATED TOKENS: ${simulationTokens}`,
+        `OPERATIONAL STATE: ${simulationState}`,
+        `EXECUTION SUMMARY: ${simulationSummaryShort}`,
       ],
     },
     {
@@ -1441,9 +1517,22 @@ function HumanConsolePreview() {
             <span>FALLBACK CHAIN: {providerFallback}</span>
             <span>COMPATIBILITY REASONING: {providerReasonShort}</span>
           </div>
+          <div className="human-classification" aria-label="Simulated provider execution">
+            <span>PROVIDER EXECUTING: {simulationProvider}</span>
+            <span>FALLBACK ACTIVATED: {simulationFallback}</span>
+            <span>SIMULATED QUALITY: {simulationQuality}</span>
+            <span>SIMULATED COST: {simulationCost}</span>
+            <span>OPERATIONAL STATE: {simulationState}</span>
+            <span>EXECUTION SUMMARY: {simulationSummaryShort}</span>
+          </div>
           {providerTimeline.length ? (
             <div className="human-classification" aria-label="Capability routing timeline">
               {providerTimeline.map((event) => <span key={`${event.timestamp}-${event.event}`}>ROUTING TIMELINE: {event.event}</span>)}
+            </div>
+          ) : null}
+          {simulationTimeline.length ? (
+            <div className="human-classification" aria-label="Provider execution timeline">
+              {simulationTimeline.map((event) => <span key={`${event.timestamp}-${event.event}`}>SIMULATION TIMELINE: {event.event}</span>)}
             </div>
           ) : null}
         </article>
@@ -1536,6 +1625,26 @@ function HumanConsolePreview() {
                   </div>
                 </>
               ) : null}
+              {simulation ? (
+                <>
+                  <div className="human-classification" aria-label="Estado de ejecucion simulada">
+                    <span>SIMULATION STATUS: {simulationState}</span>
+                    <span>PROVIDER EXECUTING: {simulationProvider}</span>
+                    <span>FALLBACK ACTIVATED: {simulationFallback}</span>
+                    <span>QUALITY ESTIMATED: {simulationQuality}</span>
+                    <span>COST ESTIMATED: {simulationCost}</span>
+                  </div>
+                  <div className="human-classification" aria-label="Outputs simulados de provider">
+                    {simulationOutputs.map((output) => <span key={`${output.kind}-${output.label}`}>SIM OUTPUT: {output.label}</span>)}
+                  </div>
+                  <div className="human-classification" aria-label="Timeline de ejecucion simulada">
+                    {simulationTimeline.map((event) => <span key={`${event.timestamp}-${event.event}`}>SIM TIMELINE: {event.event}</span>)}
+                  </div>
+                  <div className="human-classification" aria-label="Audit de ejecucion simulada">
+                    {simulationAudit.map((event) => <span key={`${event.timestamp}-${event.event_type}`}>SIM AUDIT: {event.event_type}</span>)}
+                  </div>
+                </>
+              ) : null}
               {workspaceError ? (
                 <div className="human-classification" aria-label="Workspace bloqueado">
                   <span>WORKSPACE ERROR: {workspaceError}</span>
@@ -1549,6 +1658,11 @@ function HumanConsolePreview() {
               {executionError ? (
                 <div className="human-classification" aria-label="Ejecucion bloqueada">
                   <span>EXECUTION ERROR: {executionError}</span>
+                </div>
+              ) : null}
+              {simulationError ? (
+                <div className="human-classification" aria-label="Simulacion bloqueada">
+                  <span>SIMULATION ERROR: {simulationError}</span>
                 </div>
               ) : null}
             </>
