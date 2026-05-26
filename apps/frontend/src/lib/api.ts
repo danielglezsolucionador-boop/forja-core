@@ -188,6 +188,49 @@ export type AIGatewaySnapshot = {
   generated_at: string;
 };
 
+export type ProviderConnectorState = "configured" | "missing_credentials" | "invalid_credentials" | "ready" | "disabled" | "unavailable";
+export type ProviderConnectorRecord = {
+  provider_id: string;
+  provider_name: string;
+  connector_state: ProviderConnectorState;
+  credential_state: "not_required" | "configured" | "missing" | "invalid";
+  credential_configured: boolean;
+  credential_required: boolean;
+  credential_env_var: string | null;
+  enabled: boolean;
+  safe_initialization: boolean;
+  supports_real_connection: boolean;
+  local_provider: boolean;
+  supported_capabilities: CapabilityContract["capability_type"][];
+  reasoning_strength: CapabilityContract["reasoning_level"];
+  coding_strength: CapabilityContract["coding_level"];
+  cost_profile: CapabilityContract["cost_priority"];
+  speed_profile: CapabilityContract["speed_priority"];
+  fallback_priority: number;
+  compatibility_ready: boolean;
+  status_reason: string;
+  health: {
+    provider_id: string;
+    connector_state: ProviderConnectorState;
+    credential_state: "not_required" | "configured" | "missing" | "invalid";
+    simulated_latency: number;
+    simulated_failure_rate: number;
+    last_checked: string;
+  };
+  secrets_exposed: boolean;
+};
+export type ProviderConnectorSnapshot = {
+  connector_layer_status: "ready" | "attention_required";
+  providers: ProviderConnectorRecord[];
+  configured_provider_ids: string[];
+  missing_provider_ids: string[];
+  ready_provider_ids: string[];
+  fallback_ready: boolean;
+  timeline: Array<{ timestamp: string; event: string; detail: string }>;
+  external_request_executed: boolean;
+  generated_at: string;
+};
+
 export type CreatorSender = "user" | "cerebro" | "seo" | "system";
 export type CreatorDecision = "approve" | "reject" | "hold";
 export type IntentSender = "ceo" | "cerebro" | "user" | "seo" | "system";

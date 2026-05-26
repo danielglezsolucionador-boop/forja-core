@@ -20,6 +20,7 @@ import {
   ProjectBlueprint,
   ProjectGeneration,
   ProjectWorkspace,
+  ProviderConnectorSnapshot,
   RoutingExecutionPlan,
   RuntimeStatus,
 } from "./lib/api";
@@ -767,6 +768,9 @@ function HumanConsolePreview() {
   const [gateway, setGateway] = useState<AIGatewaySnapshot | null>(null);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
   const [gatewayLoading, setGatewayLoading] = useState(false);
+  const [connectors, setConnectors] = useState<ProviderConnectorSnapshot | null>(null);
+  const [connectorsError, setConnectorsError] = useState<string | null>(null);
+  const [connectorsLoading, setConnectorsLoading] = useState(false);
   const [execution, setExecution] = useState<GovernedExecution | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [executing, setExecuting] = useState(false);
@@ -860,6 +864,30 @@ function HumanConsolePreview() {
       .finally(() => {
         if (active) {
           setGatewayLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setConnectorsLoading(true);
+    setConnectorsError(null);
+    fetchJson<ProviderConnectorSnapshot>("/provider-connectors/status")
+      .then((result) => {
+        if (!active) return;
+        setConnectors(result);
+      })
+      .catch((error: Error) => {
+        if (!active) return;
+        setConnectors(null);
+        setConnectorsError(error.message);
+      })
+      .finally(() => {
+        if (active) {
+          setConnectorsLoading(false);
         }
       });
     return () => {
@@ -1284,6 +1312,21 @@ function HumanConsolePreview() {
     : "PENDING";
   const gatewayHealthModel = gateway?.health.length ? `${gateway.health.length} HEALTH SNAPSHOTS` : "PENDING";
   const gatewayTimeline = gateway?.timeline.slice(-4) ?? [];
+  const connectorState = connectorsError ? "ERROR" : connectors?.connector_layer_status.toUpperCase().replace(/_/g, " ") ?? (connectorsLoading ? "LOADING" : "PENDING");
+  const connectorConfigured = connectors?.configured_provider_ids.length ? connectors.configured_provider_ids.join(" -> ") : connectorsError ?? "NONE";
+  const connectorMissing = connectors?.missing_provider_ids.length ? connectors.missing_provider_ids.join(" -> ") : connectors ? "NONE" : "PENDING";
+  const connectorReady = connectors?.ready_provider_ids.length ? connectors.ready_provider_ids.join(" -> ") : connectors ? "NONE" : "PENDING";
+  const connectorCapabilityProviders = connectors && capabilityContract
+    ? connectors.providers
+        .filter((provider) => provider.connector_state === "ready" && provider.supported_capabilities.includes(capabilityContract.capability_type))
+        .map((provider) => provider.provider_id)
+    : [];
+  const connectorCompatibility = capabilityContract
+    ? `${capabilityType} -> ${connectorCapabilityProviders.join(" -> ") || "NONE"}`
+    : "PENDING";
+  const connectorFallbackReadiness = connectors ? (connectors.fallback_ready ? "READY" : "LIMITED") : "PENDING";
+  const connectorSafeInit = connectors?.providers.every((provider) => provider.secrets_exposed === false) ? "SECRETS PROTECTED" : "PENDING";
+  const connectorTimeline = connectors?.timeline.slice(-4) ?? [];
   const blueprintTitle = blueprint?.project_name ?? (blueprinting ? "Preparando blueprint tecnico." : "FORJA organiza la intencion como una estrategia de construccion.");
   const blueprintObjective = blueprintError
     ? `Blueprint error: ${blueprintError}`
@@ -1383,6 +1426,19 @@ function HumanConsolePreview() {
         `FALLBACK READINESS: ${gatewayFallbackReadiness}`,
         `CAPABILITY MAPPING: ${gatewayCapabilityMapping}`,
         `HEALTH MODEL: ${gatewayHealthModel}`,
+      ],
+    },
+    {
+      title: "Provider Connectors",
+      status: connectorState,
+      items: [
+        `CONNECTOR LAYER: ${connectorState}`,
+        `PROVIDERS CONFIGURED: ${connectorConfigured}`,
+        `PROVIDERS MISSING: ${connectorMissing}`,
+        `PROVIDERS READY: ${connectorReady}`,
+        `CAPABILITY COMPATIBILITY: ${connectorCompatibility}`,
+        `CONNECTOR FALLBACK: ${connectorFallbackReadiness}`,
+        `SAFE INITIALIZATION: ${connectorSafeInit}`,
       ],
     },
     {
@@ -1572,9 +1628,22 @@ function HumanConsolePreview() {
             <span>FALLBACK READINESS: {gatewayFallbackReadiness}</span>
             <span>CAPABILITY MAPPING: {gatewayCapabilityMapping}</span>
           </div>
+          <div className="human-classification" aria-label="Provider connectors">
+            <span>PROVIDERS CONFIGURED: {connectorConfigured}</span>
+            <span>PROVIDERS MISSING: {connectorMissing}</span>
+            <span>PROVIDERS READY: {connectorReady}</span>
+            <span>CAPABILITY COMPATIBILITY: {connectorCompatibility}</span>
+            <span>CONNECTOR FALLBACK: {connectorFallbackReadiness}</span>
+            <span>SAFE INITIALIZATION: {connectorSafeInit}</span>
+          </div>
           {gatewayTimeline.length ? (
             <div className="human-classification" aria-label="AI Gateway timeline">
               {gatewayTimeline.map((event) => <span key={`${event.timestamp}-${event.event}`}>GATEWAY TIMELINE: {event.event}</span>)}
+            </div>
+          ) : null}
+          {connectorTimeline.length ? (
+            <div className="human-classification" aria-label="Provider connector timeline">
+              {connectorTimeline.map((event) => <span key={`${event.timestamp}-${event.event}`}>CONNECTOR TIMELINE: {event.event}</span>)}
             </div>
           ) : null}
           <div className="human-classification" aria-label="Provider routing">
