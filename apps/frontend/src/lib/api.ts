@@ -146,6 +146,40 @@ export type ExecutionSimulationResult = {
   generated_at: string;
 };
 
+export type RealProviderExecutionResult = {
+  execution_id: string;
+  provider_used: string | null;
+  primary_provider_attempted: string | null;
+  fallback_provider_used: string | null;
+  capability_type: CapabilityContract["capability_type"];
+  task_type: "readme" | "summary" | "architecture_notes" | "documentation";
+  execution_state:
+    | "provider_connecting"
+    | "provider_ready"
+    | "executing_real_ai"
+    | "fallback_real_ai"
+    | "degraded_mode"
+    | "completed"
+    | "failed";
+  execution_mode: "low_cost_safe" | "safe_mode" | "controlled_real_ai";
+  estimated_tokens: number;
+  estimated_cost: number;
+  estimated_duration: number;
+  max_tokens: number;
+  max_execution_time: number;
+  max_request_size: number;
+  response_received: boolean;
+  generated_text_preview: string;
+  outputs: Array<{ kind: string; label: string; logical_path: string | null; status: string; summary: string; source: string }>;
+  fallback_triggered: boolean;
+  safe_mode: boolean;
+  rate_limit_remaining: number;
+  timeline: Array<{ timestamp: string; event: string; detail: string }>;
+  audit_events: Array<{ event_type: string; actor: string; risk: string; timestamp: string }>;
+  external_request_executed: boolean;
+  generated_at: string;
+};
+
 export type AIGatewayProviderHealthState = "active" | "degraded" | "unavailable" | "disabled" | "maintenance";
 export type ProviderHealthSnapshot = {
   provider_id: string;

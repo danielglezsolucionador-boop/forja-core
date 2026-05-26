@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 print("IMPORT_STAGE_FASTAPI_OK", flush=True)
 
-from app.api.routes import ai_gateway, ai_pipeline, audit, auth, blueprint, capability_contracts, capability_routing, creator, ecosystem, execution, factory, generation, governance, health, intent, notifications, provider_abstraction, provider_connectors, provider_execution, providers, runtime, telemetry, validation, workflows, workspace
+from app.api.routes import ai_gateway, ai_pipeline, audit, auth, blueprint, capability_contracts, capability_routing, creator, ecosystem, execution, factory, generation, governance, health, intent, notifications, provider_abstraction, provider_connectors, provider_execution, providers, real_provider_execution, runtime, telemetry, validation, workflows, workspace
 
 print("IMPORT_STAGE_ROUTES_OK", flush=True)
 
@@ -98,6 +98,7 @@ app.include_router(capability_contracts.router)
 app.include_router(provider_abstraction.router)
 app.include_router(capability_routing.router)
 app.include_router(provider_execution.router)
+app.include_router(real_provider_execution.router)
 app.include_router(factory.router)
 app.include_router(intent.router)
 app.include_router(blueprint.router)

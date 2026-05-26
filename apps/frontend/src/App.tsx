@@ -21,6 +21,7 @@ import {
   ProjectGeneration,
   ProjectWorkspace,
   ProviderConnectorSnapshot,
+  RealProviderExecutionResult,
   RoutingExecutionPlan,
   RuntimeStatus,
 } from "./lib/api";
@@ -765,6 +766,9 @@ function HumanConsolePreview() {
   const [simulation, setSimulation] = useState<ExecutionSimulationResult | null>(null);
   const [simulationError, setSimulationError] = useState<string | null>(null);
   const [simulating, setSimulating] = useState(false);
+  const [realExecution, setRealExecution] = useState<RealProviderExecutionResult | null>(null);
+  const [realExecutionError, setRealExecutionError] = useState<string | null>(null);
+  const [realExecutionLoading, setRealExecutionLoading] = useState(false);
   const [gateway, setGateway] = useState<AIGatewaySnapshot | null>(null);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
   const [gatewayLoading, setGatewayLoading] = useState(false);
@@ -888,6 +892,30 @@ function HumanConsolePreview() {
       .finally(() => {
         if (active) {
           setConnectorsLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setRealExecutionLoading(true);
+    setRealExecutionError(null);
+    fetchJson<RealProviderExecutionResult | null>("/real-provider-execution/latest")
+      .then((result) => {
+        if (!active) return;
+        setRealExecution(result);
+      })
+      .catch((error: Error) => {
+        if (!active) return;
+        setRealExecution(null);
+        setRealExecutionError(error.message);
+      })
+      .finally(() => {
+        if (active) {
+          setRealExecutionLoading(false);
         }
       });
     return () => {
@@ -1294,6 +1322,23 @@ function HumanConsolePreview() {
   const simulationTimeline = simulation?.timeline.slice(-5) ?? [];
   const simulationOutputs = simulation?.outputs ?? [];
   const simulationAudit = simulation?.audit_events.slice(-5) ?? [];
+  const realExecutionState = realExecutionError
+    ? "ERROR"
+    : realExecution?.execution_state.toUpperCase().replace(/_/g, " ") ?? (realExecutionLoading ? "LOADING" : "PENDING");
+  const realProviderUsed = realExecution?.provider_used?.toUpperCase() ?? "PENDING";
+  const realCapability = realExecution?.capability_type.toUpperCase().replace(/_/g, " ") ?? "PENDING";
+  const realTask = realExecution?.task_type.toUpperCase().replace(/_/g, " ") ?? "PENDING";
+  const realTokens = realExecution ? String(realExecution.estimated_tokens) : "PENDING";
+  const realCost = realExecution ? `$${realExecution.estimated_cost.toFixed(6)}` : "PENDING";
+  const realResponseReceived = realExecution ? (realExecution.response_received ? "YES" : "NO") : "PENDING";
+  const realFallback = realExecution ? (realExecution.fallback_triggered ? `YES: ${realExecution.fallback_provider_used ?? "fallback"}` : "NO") : "PENDING";
+  const realExecutionMode = realExecution?.execution_mode.toUpperCase().replace(/_/g, " ") ?? "PENDING";
+  const realSafeMode = realExecution ? (realExecution.safe_mode ? "ENABLED" : "DISABLED") : "ENABLED";
+  const realPreview = realExecutionError ?? realExecution?.generated_text_preview ?? "Real AI execution is available only through the governed endpoint.";
+  const realPreviewShort = realPreview.length > 118 ? `${realPreview.slice(0, 115)}...` : realPreview;
+  const realExecutionTimeline = realExecution?.timeline.slice(-5) ?? [];
+  const realExecutionOutputs = realExecution?.outputs ?? [];
+  const realExecutionAudit = realExecution?.audit_events.slice(-5) ?? [];
   const gatewayState = gatewayError ? "ERROR" : gateway?.gateway_status.toUpperCase() ?? (gatewayLoading ? "LOADING" : "PENDING");
   const gatewayProviders = gateway?.providers ?? [];
   const gatewayActiveProviders = gatewayProviders.filter((provider) => provider.enabled && ["active", "degraded"].includes(provider.availability)).length;
@@ -1466,6 +1511,22 @@ function HumanConsolePreview() {
         `SIMULATED TOKENS: ${simulationTokens}`,
         `OPERATIONAL STATE: ${simulationState}`,
         `EXECUTION SUMMARY: ${simulationSummaryShort}`,
+      ],
+    },
+    {
+      title: "Real AI Execution",
+      status: realExecutionState,
+      items: [
+        `REAL PROVIDER USED: ${realProviderUsed}`,
+        `REAL CAPABILITY: ${realCapability}`,
+        `REAL TASK: ${realTask}`,
+        `TOKENS ESTIMATED: ${realTokens}`,
+        `COST ESTIMATED: ${realCost}`,
+        `RESPONSE RECEIVED: ${realResponseReceived}`,
+        `REAL FALLBACK: ${realFallback}`,
+        `EXECUTION MODE: ${realExecutionMode}`,
+        `SAFE MODE: ${realSafeMode}`,
+        `REAL SUMMARY: ${realPreviewShort}`,
       ],
     },
     {
@@ -1665,6 +1726,15 @@ function HumanConsolePreview() {
             <span>OPERATIONAL STATE: {simulationState}</span>
             <span>EXECUTION SUMMARY: {simulationSummaryShort}</span>
           </div>
+          <div className="human-classification" aria-label="Real provider execution">
+            <span>REAL PROVIDER USED: {realProviderUsed}</span>
+            <span>CAPABILITY EXECUTED: {realCapability}</span>
+            <span>TOKENS ESTIMATED: {realTokens}</span>
+            <span>COST ESTIMATED: {realCost}</span>
+            <span>RESPONSE RECEIVED: {realResponseReceived}</span>
+            <span>REAL FALLBACK: {realFallback}</span>
+            <span>EXECUTION MODE: {realExecutionMode}</span>
+          </div>
           {providerTimeline.length ? (
             <div className="human-classification" aria-label="Capability routing timeline">
               {providerTimeline.map((event) => <span key={`${event.timestamp}-${event.event}`}>ROUTING TIMELINE: {event.event}</span>)}
@@ -1673,6 +1743,11 @@ function HumanConsolePreview() {
           {simulationTimeline.length ? (
             <div className="human-classification" aria-label="Provider execution timeline">
               {simulationTimeline.map((event) => <span key={`${event.timestamp}-${event.event}`}>SIMULATION TIMELINE: {event.event}</span>)}
+            </div>
+          ) : null}
+          {realExecutionTimeline.length ? (
+            <div className="human-classification" aria-label="Real provider execution timeline">
+              {realExecutionTimeline.map((event) => <span key={`${event.timestamp}-${event.event}`}>REAL TIMELINE: {event.event}</span>)}
             </div>
           ) : null}
         </article>
@@ -1785,6 +1860,26 @@ function HumanConsolePreview() {
                   </div>
                 </>
               ) : null}
+              {realExecution ? (
+                <>
+                  <div className="human-classification" aria-label="Estado de ejecucion IA real">
+                    <span>REAL AI STATUS: {realExecutionState}</span>
+                    <span>REAL PROVIDER USED: {realProviderUsed}</span>
+                    <span>CAPABILITY EXECUTED: {realCapability}</span>
+                    <span>RESPONSE RECEIVED: {realResponseReceived}</span>
+                    <span>REAL FALLBACK: {realFallback}</span>
+                  </div>
+                  <div className="human-classification" aria-label="Outputs reales de IA">
+                    {realExecutionOutputs.map((output) => <span key={`${output.kind}-${output.logical_path ?? output.label}`}>REAL OUTPUT: {output.label}</span>)}
+                  </div>
+                  <div className="human-classification" aria-label="Timeline de IA real">
+                    {realExecutionTimeline.map((event) => <span key={`${event.timestamp}-${event.event}`}>REAL TIMELINE: {event.event}</span>)}
+                  </div>
+                  <div className="human-classification" aria-label="Audit de IA real">
+                    {realExecutionAudit.map((event) => <span key={`${event.timestamp}-${event.event_type}`}>REAL AUDIT: {event.event_type}</span>)}
+                  </div>
+                </>
+              ) : null}
               {workspaceError ? (
                 <div className="human-classification" aria-label="Workspace bloqueado">
                   <span>WORKSPACE ERROR: {workspaceError}</span>
@@ -1805,6 +1900,11 @@ function HumanConsolePreview() {
                   <span>SIMULATION ERROR: {simulationError}</span>
                 </div>
               ) : null}
+              {realExecutionError ? (
+                <div className="human-classification" aria-label="IA real bloqueada">
+                  <span>REAL AI ERROR: {realExecutionError}</span>
+                </div>
+              ) : null}
             </>
           ) : null}
         </article>
@@ -1815,7 +1915,7 @@ function HumanConsolePreview() {
           <summary>Panel técnico oculto para el CEO</summary>
           <div>
             <p>Runtime, providers, audit stream, output manager, capability system y execution logs quedan detrás de esta capa para no dominar la experiencia principal.</p>
-            <span>Esta consola usa la ejecucion gobernada sin activar IA externa, deploys ni comandos fuera del workspace.</span>
+            <span>Esta consola usa ejecucion gobernada; la IA real queda disponible solo por endpoint controlado, sin deploys ni comandos fuera del workspace.</span>
           </div>
         </details>
       </section>
