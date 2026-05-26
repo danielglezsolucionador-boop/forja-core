@@ -405,7 +405,18 @@ class GovernedExecutionManager:
                 )
             for path in generation.get("generated_files", []):
                 outputs.append({"kind": "generated_file", "label": path.rsplit("/", 1)[-1], "logical_path": path, "status": "available", "source": "file_generator"})
-        return outputs
+        return self._unique_outputs(outputs)
+
+    def _unique_outputs(self, outputs: list[dict]) -> list[dict]:
+        deduped: list[dict] = []
+        seen_paths: set[str] = set()
+        for output in outputs:
+            logical_path = output["logical_path"]
+            if logical_path in seen_paths:
+                continue
+            seen_paths.add(logical_path)
+            deduped.append(output)
+        return deduped
 
     def _write_execution_record(self, workspace: dict, record: dict) -> None:
         request_id = workspace["request_id"]

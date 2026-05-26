@@ -10,11 +10,19 @@ from app.schemas.common import HealthResponse
 router = APIRouter(tags=["health"])
 
 
+def _overall_health_status(db_status: dict) -> str:
+    if db_status["status"] in {"ok", "not_configured"}:
+        return "ok"
+    if settings.is_local and db_status["status"] == "unavailable":
+        return "ok"
+    return "degraded"
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     db_status = await database_status()
     return HealthResponse(
-        status="ok" if db_status["status"] in {"ok", "not_configured"} else "degraded",
+        status=_overall_health_status(db_status),
         service=settings.app_name,
         version=settings.app_version,
         environment=settings.app_env,

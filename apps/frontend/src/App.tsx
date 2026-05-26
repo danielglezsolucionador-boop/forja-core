@@ -1285,7 +1285,7 @@ function HumanConsolePreview() {
                   <strong>{section.status}</strong>
                 </div>
                 <div className="human-classification">
-                  {section.items.map((item) => <span key={`${section.title}-${item}`}>{item}</span>)}
+                  {section.items.map((item, itemIndex) => <span key={`${section.title}-${itemIndex}-${item}`}>{item}</span>)}
                 </div>
               </section>
             ))}
