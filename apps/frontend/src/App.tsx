@@ -18,6 +18,7 @@ import {
   ProjectBlueprint,
   ProjectGeneration,
   ProjectWorkspace,
+  ProviderRoutingDecision,
   RuntimeStatus,
 } from "./lib/api";
 
@@ -755,6 +756,9 @@ function HumanConsolePreview() {
   const [capabilityContract, setCapabilityContract] = useState<CapabilityContract | null>(null);
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [capabilitying, setCapabilitying] = useState(false);
+  const [providerDecision, setProviderDecision] = useState<ProviderRoutingDecision | null>(null);
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [providerMatching, setProviderMatching] = useState(false);
   const [execution, setExecution] = useState<GovernedExecution | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [executing, setExecuting] = useState(false);
@@ -863,6 +867,9 @@ function HumanConsolePreview() {
       setCapabilityContract(null);
       setCapabilityError(null);
       setCapabilitying(false);
+      setProviderDecision(null);
+      setProviderError(null);
+      setProviderMatching(false);
       setExecution(null);
       setExecutionError(null);
       setExecuting(false);
@@ -884,6 +891,9 @@ function HumanConsolePreview() {
     setCapabilityContract(null);
     setCapabilityError(null);
     setCapabilitying(false);
+    setProviderDecision(null);
+    setProviderError(null);
+    setProviderMatching(false);
     setExecution(null);
     setExecutionError(null);
     setExecuting(true);
@@ -904,6 +914,8 @@ function HumanConsolePreview() {
           setGeneration(null);
           setCapabilityContract(null);
           setCapabilityError(error.message);
+          setProviderDecision(null);
+          setProviderError(error.message);
         })
         .finally(() => {
           if (active) {
@@ -993,6 +1005,36 @@ function HumanConsolePreview() {
   }, [interpretation]);
 
   useEffect(() => {
+    if (!capabilityContract) {
+      setProviderDecision(null);
+      setProviderError(null);
+      setProviderMatching(false);
+      return;
+    }
+    let active = true;
+    setProviderMatching(true);
+    setProviderError(null);
+    postJson<ProviderRoutingDecision>("/provider-abstraction/route", { contract: capabilityContract })
+      .then((result) => {
+        if (!active) return;
+        setProviderDecision(result);
+      })
+      .catch((error: Error) => {
+        if (!active) return;
+        setProviderDecision(null);
+        setProviderError(error.message);
+      })
+      .finally(() => {
+        if (active) {
+          setProviderMatching(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [capabilityContract]);
+
+  useEffect(() => {
     if (execution) {
       setWorkspacing(false);
       return;
@@ -1052,6 +1094,8 @@ function HumanConsolePreview() {
     setGenerationError(null);
     setCapabilityContract(null);
     setCapabilityError(null);
+    setProviderDecision(null);
+    setProviderError(null);
   };
 
   const runPrimaryExecutionAction = () => {
@@ -1121,6 +1165,13 @@ function HumanConsolePreview() {
   const capabilityCost = capabilityContract?.cost_priority.toUpperCase().replace(/_/g, " ") ?? "PENDING";
   const capabilitySpeed = capabilityContract?.speed_priority.toUpperCase().replace(/_/g, " ") ?? "PENDING";
   const capabilityFallback = capabilityContract ? (capabilityContract.fallback_allowed ? "ALLOWED" : "DISABLED") : "PENDING";
+  const providerState = providerError ? "ERROR" : providerDecision ? "ROUTED" : providerMatching ? "MATCHING" : "PENDING";
+  const providerName = providerDecision?.selected_provider?.provider_name ?? (providerDecision ? "NO COMPATIBLE PROVIDER" : "PENDING");
+  const providerQuality = providerDecision?.estimated_quality_profile?.toUpperCase() ?? "PENDING";
+  const providerCost = providerDecision?.estimated_cost_profile?.toUpperCase().replace(/_/g, " ") ?? "PENDING";
+  const providerFallback = providerDecision?.fallback_provider?.provider_name ?? providerDecision?.fallback_strategy.replace(/_/g, " ").toUpperCase() ?? "PENDING";
+  const providerReason = providerError ?? providerDecision?.reason ?? "Provider abstraction awaits a capability contract.";
+  const providerReasonShort = providerReason.length > 118 ? `${providerReason.slice(0, 115)}...` : providerReason;
   const blueprintTitle = blueprint?.project_name ?? (blueprinting ? "Preparando blueprint tecnico." : "FORJA organiza la intencion como una estrategia de construccion.");
   const blueprintObjective = blueprintError
     ? `Blueprint error: ${blueprintError}`
@@ -1207,6 +1258,17 @@ function HumanConsolePreview() {
         `COST PROFILE: ${capabilityCost}`,
         `SPEED PROFILE: ${capabilitySpeed}`,
         `FALLBACK POLICY: ${capabilityFallback}`,
+      ],
+    },
+    {
+      title: "Provider Routing",
+      status: providerState,
+      items: [
+        `PROVIDER SUGGESTED: ${providerName}`,
+        `QUALITY PROFILE: ${providerQuality}`,
+        `COST PROFILE: ${providerCost}`,
+        `FALLBACK STRATEGY: ${providerFallback}`,
+        `COMPATIBILITY: ${providerDecision ? Math.round(providerDecision.confidence * 100) : 0}%`,
       ],
     },
     {
@@ -1361,6 +1423,13 @@ function HumanConsolePreview() {
             <span>COST: {capabilityCost}</span>
             <span>SPEED: {capabilitySpeed}</span>
             <span>FALLBACK: {capabilityFallback}</span>
+          </div>
+          <div className="human-classification" aria-label="Provider routing">
+            <span>PROVIDER SUGGESTED: {providerName}</span>
+            <span>QUALITY PROFILE: {providerQuality}</span>
+            <span>COST PROFILE: {providerCost}</span>
+            <span>FALLBACK STRATEGY: {providerFallback}</span>
+            <span>COMPATIBILITY REASONING: {providerReasonShort}</span>
           </div>
         </article>
 

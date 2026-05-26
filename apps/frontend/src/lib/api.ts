@@ -61,6 +61,44 @@ export type CapabilityContract = {
   timestamp: string;
 };
 
+export type ProviderProfile = {
+  provider_id: string;
+  provider_name: string;
+  supported_capabilities: CapabilityContract["capability_type"][];
+  reasoning_strength: CapabilityContract["reasoning_level"];
+  coding_strength: CapabilityContract["coding_level"];
+  speed_profile: CapabilityContract["speed_priority"];
+  cost_profile: CapabilityContract["cost_priority"];
+  context_capacity: number;
+  availability_status: string;
+  fallback_priority: number;
+  premium_provider: boolean;
+  local_provider: boolean;
+  enabled: boolean;
+  notes: string;
+};
+
+export type ProviderRoutingDecision = {
+  selected_provider: ProviderProfile | null;
+  fallback_provider: ProviderProfile | null;
+  reason: string;
+  confidence: number;
+  estimated_cost_profile: CapabilityContract["cost_priority"] | null;
+  estimated_quality_profile: CapabilityContract["reasoning_level"] | null;
+  compatible_providers: ProviderProfile[];
+  scoring: Array<{
+    provider_id: string;
+    provider_name: string;
+    quality_score: number;
+    cost_score: number;
+    speed_score: number;
+    compatibility_score: number;
+    reason: string;
+  }>;
+  fallback_strategy: string;
+  external_request_executed: boolean;
+};
+
 export type CreatorSender = "user" | "cerebro" | "seo" | "system";
 export type CreatorDecision = "approve" | "reject" | "hold";
 export type IntentSender = "ceo" | "cerebro" | "user" | "seo" | "system";
