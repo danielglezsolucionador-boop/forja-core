@@ -11,11 +11,13 @@ import {
   CreatorDecision,
   CreatorOutput,
   CreatorSender,
+  EcosystemOrchestrationStatus,
   ExecutionSimulationResult,
   fetchJson,
   GovernedExecution,
   HealthResponse,
   IntentInterpretation,
+  OperationalLoopStatus,
   postJson,
   ProjectBlueprint,
   ProjectGeneration,
@@ -775,6 +777,12 @@ function HumanConsolePreview() {
   const [connectors, setConnectors] = useState<ProviderConnectorSnapshot | null>(null);
   const [connectorsError, setConnectorsError] = useState<string | null>(null);
   const [connectorsLoading, setConnectorsLoading] = useState(false);
+  const [operationalLoop, setOperationalLoop] = useState<OperationalLoopStatus | null>(null);
+  const [operationalLoopError, setOperationalLoopError] = useState<string | null>(null);
+  const [operationalLoopLoading, setOperationalLoopLoading] = useState(false);
+  const [ecosystemStatus, setEcosystemStatus] = useState<EcosystemOrchestrationStatus | null>(null);
+  const [ecosystemError, setEcosystemError] = useState<string | null>(null);
+  const [ecosystemLoading, setEcosystemLoading] = useState(false);
   const [execution, setExecution] = useState<GovernedExecution | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [executing, setExecuting] = useState(false);
@@ -916,6 +924,54 @@ function HumanConsolePreview() {
       .finally(() => {
         if (active) {
           setRealExecutionLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setOperationalLoopLoading(true);
+    setOperationalLoopError(null);
+    fetchJson<OperationalLoopStatus>("/operational-loop/status")
+      .then((result) => {
+        if (!active) return;
+        setOperationalLoop(result);
+      })
+      .catch((error: Error) => {
+        if (!active) return;
+        setOperationalLoop(null);
+        setOperationalLoopError(error.message);
+      })
+      .finally(() => {
+        if (active) {
+          setOperationalLoopLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setEcosystemLoading(true);
+    setEcosystemError(null);
+    fetchJson<EcosystemOrchestrationStatus>("/ecosystem-orchestration/status")
+      .then((result) => {
+        if (!active) return;
+        setEcosystemStatus(result);
+      })
+      .catch((error: Error) => {
+        if (!active) return;
+        setEcosystemStatus(null);
+        setEcosystemError(error.message);
+      })
+      .finally(() => {
+        if (active) {
+          setEcosystemLoading(false);
         }
       });
     return () => {
@@ -1339,6 +1395,22 @@ function HumanConsolePreview() {
   const realExecutionTimeline = realExecution?.timeline.slice(-5) ?? [];
   const realExecutionOutputs = realExecution?.outputs ?? [];
   const realExecutionAudit = realExecution?.audit_events.slice(-5) ?? [];
+  const operationalLoopState = operationalLoopError ? "ERROR" : operationalLoop?.status.toUpperCase() ?? (operationalLoopLoading ? "LOADING" : "PENDING");
+  const latestBuild = operationalLoop?.build_loop.latest_build;
+  const buildLoopPhase = String(latestBuild?.active_phase ?? latestBuild?.state ?? "PENDING").toUpperCase().replace(/_/g, " ");
+  const buildLoopProgress = typeof latestBuild?.progress === "number" ? `${latestBuild.progress}%` : "PENDING";
+  const validationLoopState = operationalLoop?.validation_loop
+    ? ((operationalLoop.validation_loop.passed as boolean | undefined) ? "PASSED" : String(operationalLoop.validation_loop.severity ?? "FAILED").toUpperCase())
+    : "PENDING";
+  const correctionLoopState = String(operationalLoop?.correction_loop?.state ?? "PENDING").toUpperCase().replace(/_/g, " ");
+  const retryPolicyState = String(operationalLoop?.retry_policy?.state ?? "PENDING").toUpperCase().replace(/_/g, " ");
+  const deliveryPackageState = String(operationalLoop?.delivery_package?.status ?? "PENDING").toUpperCase();
+  const ecosystemState = ecosystemError ? "ERROR" : ecosystemStatus?.status.toUpperCase() ?? (ecosystemLoading ? "LOADING" : "PENDING");
+  const ecosystemMode = ecosystemStatus?.mode.toUpperCase().replace(/_/g, " ") ?? "PENDING";
+  const ecosystemContracts = ecosystemStatus?.contracts.length ?? 0;
+  const hermesBridgeState = String(ecosystemStatus?.hermes_bridge.bridge_status ?? "PENDING").toUpperCase();
+  const cerebroBridgeState = String(ecosystemStatus?.cerebro_bridge.bridge_status ?? "PENDING").toUpperCase();
+  const orchestrationState = String(ecosystemStatus?.orchestration_latest?.status ?? "PENDING").toUpperCase();
   const gatewayState = gatewayError ? "ERROR" : gateway?.gateway_status.toUpperCase() ?? (gatewayLoading ? "LOADING" : "PENDING");
   const gatewayProviders = gateway?.providers ?? [];
   const gatewayActiveProviders = gatewayProviders.filter((provider) => provider.enabled && ["active", "degraded"].includes(provider.availability)).length;
@@ -1584,6 +1656,33 @@ function HumanConsolePreview() {
         `UPDATED: ${execution?.updated_at ? "YES" : "NO"}`,
       ],
     },
+    {
+      title: "Operational Loop",
+      status: operationalLoopState,
+      items: [
+        `BUILD LOOP: ${buildLoopPhase}`,
+        `PROGRESS: ${buildLoopProgress}`,
+        `VALIDATION LOOP: ${validationLoopState}`,
+        `CORRECTION LOOP: ${correctionLoopState}`,
+        `RETRY POLICY: ${retryPolicyState}`,
+        `DELIVERY PACKAGE: ${deliveryPackageState}`,
+        `EXTERNAL COMMANDS: ${operationalLoop?.external_commands_enabled ? "ENABLED" : "DISABLED"}`,
+      ],
+    },
+    {
+      title: "Ecosystem Readiness",
+      status: ecosystemState,
+      items: [
+        `ECOSYSTEM READINESS: ${ecosystemState}`,
+        `MODE: ${ecosystemMode}`,
+        `ALLOWED AGENTS: ${ecosystemContracts}`,
+        `HERMES BRIDGE: ${hermesBridgeState}`,
+        `CEREBRO BRIDGE: ${cerebroBridgeState}`,
+        `ORCHESTRATION TRAIL: ${orchestrationState}`,
+        `REAL HERMES: ${ecosystemStatus?.real_hermes_connection ? "CONNECTED" : "MOCK ONLY"}`,
+        `REAL CEREBRO: ${ecosystemStatus?.real_cerebro_connection ? "CONNECTED" : "MOCK ONLY"}`,
+      ],
+    },
   ];
 
   return (
@@ -1747,6 +1846,20 @@ function HumanConsolePreview() {
             <span>RESPONSE RECEIVED: {realResponseReceived}</span>
             <span>REAL FALLBACK: {realFallback}</span>
             <span>EXECUTION MODE: {realExecutionMode}</span>
+          </div>
+          <div className="human-classification" aria-label="Operational loop">
+            <span>BUILD LOOP: {buildLoopPhase}</span>
+            <span>PROGRESS: {buildLoopProgress}</span>
+            <span>VALIDATION LOOP: {validationLoopState}</span>
+            <span>CORRECTION LOOP: {correctionLoopState}</span>
+            <span>DELIVERY PACKAGE: {deliveryPackageState}</span>
+          </div>
+          <div className="human-classification" aria-label="Ecosystem readiness">
+            <span>ECOSYSTEM READINESS: {ecosystemState}</span>
+            <span>ALLOWED AGENTS: {ecosystemContracts}</span>
+            <span>HERMES BRIDGE: {hermesBridgeState}</span>
+            <span>CEREBRO BRIDGE: {cerebroBridgeState}</span>
+            <span>ORCHESTRATION TRAIL: {orchestrationState}</span>
           </div>
           {providerTimeline.length ? (
             <div className="human-classification" aria-label="Capability routing timeline">

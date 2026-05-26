@@ -269,6 +269,37 @@ export type ProviderConnectorSnapshot = {
   generated_at: string;
 };
 
+export type OperationalLoopStatus = {
+  status: string;
+  build_loop: {
+    manager: string;
+    available_states: string[];
+    latest_build: Record<string, unknown> | null;
+    safe_workspace_root: string;
+    external_commands_enabled: boolean;
+    generated_at: string;
+  };
+  validation_loop: Record<string, unknown> | null;
+  correction_loop: Record<string, unknown> | null;
+  retry_policy: Record<string, unknown> | null;
+  delivery_package: Record<string, unknown> | null;
+  external_commands_enabled: boolean;
+};
+
+export type EcosystemOrchestrationStatus = {
+  status: string;
+  mode: "mock_only" | string;
+  contracts: Array<Record<string, unknown>>;
+  latest_message: Record<string, unknown> | null;
+  hermes_bridge: Record<string, unknown>;
+  cerebro_bridge: Record<string, unknown>;
+  orchestration_latest: Record<string, unknown> | null;
+  real_hermes_connection: boolean;
+  real_cerebro_connection: boolean;
+  audit_events: Array<{ event_type: string; actor: string; risk: string; timestamp: string }>;
+  generated_at: string;
+};
+
 export type CreatorSender = "user" | "cerebro" | "seo" | "system";
 export type CreatorDecision = "approve" | "reject" | "hold";
 export type IntentSender = "ceo" | "cerebro" | "user" | "seo" | "system";
