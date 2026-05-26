@@ -50,10 +50,11 @@ def test_low_cost_coding_routes_to_deepseek_with_qwen_fallback() -> None:
     assert decision["estimated_cost_profile"] == "low_cost"
 
 
-def test_frontend_generation_prefers_openai_or_gemini() -> None:
+def test_frontend_generation_prefers_economic_provider() -> None:
     decision = _route(_contract(capability_type="frontend_generation", coding_level="high"))
-    assert decision["selected_provider"]["provider_id"] in {"openai", "gemini"}
-    assert {provider["provider_id"] for provider in decision["compatible_providers"]}.issuperset({"openai", "gemini"})
+    assert decision["selected_provider"]["provider_id"] == "qwen"
+    assert decision["estimated_cost_profile"] == "low_cost"
+    assert {provider["provider_id"] for provider in decision["compatible_providers"]}.issuperset({"openai", "gemini", "qwen"})
 
 
 def test_backend_generation_has_coding_compatible_profiles() -> None:

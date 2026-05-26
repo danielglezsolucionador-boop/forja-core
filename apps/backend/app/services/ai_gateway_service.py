@@ -4,6 +4,7 @@ from app.core.audit import append_audit_event, utc_now
 from app.core.storage import JsonStore, store
 from app.services.capability_routing_service import capability_routing_engine
 from app.services.provider_abstraction_service import MOCK_PROVIDER_PROFILES
+from app.services.provider_priority_service import annotate_provider, economic_provider_ids, premium_provider_ids
 
 
 CAPABILITY_REGISTRY = [
@@ -102,8 +103,9 @@ class AIGatewayManager:
 
             for profile in MOCK_PROVIDER_PROFILES:
                 provider_id = profile["provider_id"]
+                annotated = annotate_provider(profile, MOCK_PROVIDER_PROFILES)
                 if provider_id not in payload["providers"]:
-                    payload["providers"][provider_id] = self._provider_record(profile)
+                    payload["providers"][provider_id] = self._provider_record(annotated)
                     append_audit_event(
                         "provider_registered",
                         "system",
@@ -114,6 +116,12 @@ class AIGatewayManager:
                         },
                         risk="low",
                     )
+                else:
+                    payload["providers"][provider_id]["provider_role"] = annotated["provider_role"]
+                    payload["providers"][provider_id]["operational_priority"] = annotated["operational_priority"]
+                    payload["providers"][provider_id]["supported_capabilities"] = annotated["supported_capabilities"]
+                    payload["providers"][provider_id]["cost_profile"] = annotated["cost_profile"]
+                    payload["providers"][provider_id]["notes"] = annotated["notes"]
 
             if not initialized:
                 payload["timeline"].append(self._event("providers.loaded", f"{len(payload['providers'])} provider profiles loaded."))
@@ -156,6 +164,8 @@ class AIGatewayManager:
             "fallback_priority": profile["fallback_priority"],
             "premium_provider": profile["premium_provider"],
             "local_provider": profile["local_provider"],
+            "provider_role": profile.get("provider_role", "balanced_future"),
+            "operational_priority": int(profile.get("operational_priority", profile["fallback_priority"])),
             "health": {
                 "provider_id": profile["provider_id"],
                 "health_state": state,
@@ -168,13 +178,16 @@ class AIGatewayManager:
         }
 
     def _snapshot(self, payload: dict) -> dict:
-        providers = sorted(payload["providers"].values(), key=lambda item: item["fallback_priority"])
+        providers = sorted(payload["providers"].values(), key=lambda item: item["operational_priority"])
         capabilities = [self._capability_entry(payload, capability) for capability in CAPABILITY_REGISTRY]
         health = [provider["health"] for provider in providers]
         fallback_tree = {entry["capability_type"]: entry["fallback_provider_ids"] for entry in capabilities}
         gateway_status = "degraded" if any(provider["availability"] == "degraded" for provider in providers) else "active"
+        economic = economic_provider_ids()
         return {
             "gateway_status": gateway_status,
+            "economic_provider_id": economic[0] if economic else None,
+            "premium_fallback_provider_ids": premium_provider_ids(),
             "providers": providers,
             "capabilities": capabilities,
             "health": health,
@@ -188,7 +201,7 @@ class AIGatewayManager:
     def _capability_entry(self, payload: dict, capability_type: str) -> dict:
         providers = [
             provider
-            for provider in sorted(payload["providers"].values(), key=lambda item: item["fallback_priority"])
+            for provider in sorted(payload["providers"].values(), key=lambda item: item["operational_priority"])
             if capability_type in provider["supported_capabilities"]
         ]
         provider_ids = [provider["provider_id"] for provider in providers]
@@ -250,7 +263,7 @@ class AIGatewayManager:
         payload.setdefault("registered_capabilities", [])
         if not payload["providers"]:
             for profile in MOCK_PROVIDER_PROFILES:
-                payload["providers"][profile["provider_id"]] = self._provider_record(profile)
+                payload["providers"][profile["provider_id"]] = self._provider_record(annotate_provider(profile, MOCK_PROVIDER_PROFILES))
 
     def _blocked_provider_ids(self, payload: dict) -> list[str]:
         return [provider_id for provider_id, provider in payload["providers"].items() if not self._is_available(provider)]

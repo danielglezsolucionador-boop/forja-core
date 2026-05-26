@@ -730,7 +730,7 @@ function capabilityPayloadForIntent(intent: IntentInterpretation) {
     reasoning_level: isHighRisk ? "high" : isMediumRisk ? "medium" : "low",
     coding_level: capabilityType === "repair" ? "expert" : needsCoding ? "high" : "none",
     speed_priority: isHighRisk ? "maximum_quality" : "balanced",
-    cost_priority: "balanced",
+    cost_priority: isHighRisk ? "premium_allowed" : "low_cost",
     context_size: isHighRisk ? 128000 : 64000,
     provider_constraints: ["provider_agnostic", "no_model_selection", "no_api_execution"],
     requires_human_approval: intent.requires_approval || isHighRisk || capabilityType === "architecture",
@@ -1355,6 +1355,13 @@ function HumanConsolePreview() {
   const gatewayFallbackReadiness = gatewayCapabilityEntry
     ? gatewayCapabilityEntry.fallback_provider_ids.length ? gatewayCapabilityEntry.fallback_provider_ids.join(" -> ") : "NONE"
     : "PENDING";
+  const gatewayEconomicProvider = gateway?.economic_provider_id
+    ? gatewayProviders.find((provider) => provider.provider_id === gateway.economic_provider_id)?.provider_name ?? gateway.economic_provider_id
+    : gatewayProviders.find((provider) => provider.cost_profile === "low_cost" && provider.enabled)?.provider_name ?? "PENDING";
+  const gatewayLowCostMode = gatewayEconomicProvider !== "PENDING" ? "ECONOMIC LOW COST" : "PENDING";
+  const gatewayPremiumFallback = gateway?.premium_fallback_provider_ids.length
+    ? gateway.premium_fallback_provider_ids.join(" -> ")
+    : gatewayProviders.filter((provider) => provider.premium_provider).map((provider) => provider.provider_id).join(" -> ") || "PENDING";
   const gatewayHealthModel = gateway?.health.length ? `${gateway.health.length} HEALTH SNAPSHOTS` : "PENDING";
   const gatewayTimeline = gateway?.timeline.slice(-4) ?? [];
   const connectorState = connectorsError ? "ERROR" : connectors?.connector_layer_status.toUpperCase().replace(/_/g, " ") ?? (connectorsLoading ? "LOADING" : "PENDING");
@@ -1465,10 +1472,13 @@ function HumanConsolePreview() {
       status: gatewayState,
       items: [
         `AI GATEWAY STATUS: ${gatewayState}`,
+        `ECONOMIC PROVIDER ACTIVE: ${gatewayEconomicProvider}`,
+        `LOW COST MODE: ${gatewayLowCostMode}`,
         `PROVIDERS ACTIVE: ${gatewayActiveProviders}/${gatewayProviders.length || 0}`,
         `PROVIDER AVAILABILITY: ${gatewayProviderAvailability}`,
         `PROVIDER STATES: ${gatewayProviderStates}`,
         `FALLBACK READINESS: ${gatewayFallbackReadiness}`,
+        `PREMIUM FALLBACK PREPARED: ${gatewayPremiumFallback}`,
         `CAPABILITY MAPPING: ${gatewayCapabilityMapping}`,
         `HEALTH MODEL: ${gatewayHealthModel}`,
       ],
@@ -1684,9 +1694,12 @@ function HumanConsolePreview() {
           </div>
           <div className="human-classification" aria-label="AI Gateway">
             <span>AI GATEWAY STATUS: {gatewayState}</span>
+            <span>ECONOMIC PROVIDER ACTIVE: {gatewayEconomicProvider}</span>
+            <span>LOW COST MODE: {gatewayLowCostMode}</span>
             <span>PROVIDER AVAILABILITY: {gatewayProviderAvailability}</span>
             <span>PROVIDER STATES: {gatewayProviderStates}</span>
             <span>FALLBACK READINESS: {gatewayFallbackReadiness}</span>
+            <span>PREMIUM FALLBACK PREPARED: {gatewayPremiumFallback}</span>
             <span>CAPABILITY MAPPING: {gatewayCapabilityMapping}</span>
           </div>
           <div className="human-classification" aria-label="Provider connectors">

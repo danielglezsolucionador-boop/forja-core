@@ -70,7 +70,7 @@ MOCK_PROVIDER_PROFILES: list[dict] = [
     {
         "provider_id": "deepseek",
         "provider_name": "DeepSeek",
-        "supported_capabilities": ["coding", "backend_generation", "debugging", "analysis", "summarization"],
+        "supported_capabilities": ["coding", "backend_generation", "debugging", "analysis", "summarization", "documentation"],
         "reasoning_strength": "medium",
         "coding_strength": "high",
         "speed_profile": "balanced",
@@ -81,12 +81,12 @@ MOCK_PROVIDER_PROFILES: list[dict] = [
         "premium_provider": False,
         "local_provider": False,
         "enabled": True,
-        "notes": "Mock profile for future routing; no API is connected.",
+        "notes": "Economic operational profile for daily routing; no API is connected in mock routing.",
     },
     {
         "provider_id": "qwen",
         "provider_name": "Qwen",
-        "supported_capabilities": ["coding", "backend_generation", "debugging", "analysis", "summarization", "documentation"],
+        "supported_capabilities": ["coding", "frontend_generation", "backend_generation", "debugging", "analysis", "summarization", "architecture", "documentation"],
         "reasoning_strength": "medium",
         "coding_strength": "high",
         "speed_profile": "fast",
@@ -97,7 +97,7 @@ MOCK_PROVIDER_PROFILES: list[dict] = [
         "premium_provider": False,
         "local_provider": False,
         "enabled": True,
-        "notes": "Mock profile for future routing; no API is connected.",
+        "notes": "Economic fallback profile for daily routing; no API is connected in mock routing.",
     },
     {
         "provider_id": "local_llm",

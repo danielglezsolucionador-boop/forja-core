@@ -4,6 +4,7 @@ import uuid
 
 from app.core.audit import append_audit_event, utc_now
 from app.services.provider_abstraction_service import NEUTRAL_CONSTRAINTS, QUALITY_VALUES, provider_abstraction_service
+from app.services.provider_priority_service import annotate_provider, economic_provider_ids, operational_priority
 
 
 CONSTRAINTS = {"local_only", "premium_only", "low_cost_only", "safe_mode", "experimental_mode"}
@@ -45,7 +46,7 @@ class CapabilityRoutingEngine:
             if score["compatible"]:
                 scored.append(score)
 
-        scored.sort(key=lambda item: (-item["compatibility_score"], item["profile"]["fallback_priority"], item["profile"]["provider_id"]))
+        scored.sort(key=lambda item: self._selection_key(item, execution_mode))
         timeline.append(self._event("providers.evaluated", f"{len(providers)} provider profiles evaluated; {len(scored)} compatible."))
 
         primary = scored[0]["profile"] if scored else None
@@ -87,6 +88,25 @@ class CapabilityRoutingEngine:
             },
             risk=risk_level.lower(),
         )
+        if primary and primary.get("provider_role") in {"economic_primary", "economic_fallback"}:
+            append_audit_event(
+                "economic_provider_selected",
+                contract["requested_by"],
+                {
+                    "capability_id": contract["capability_id"],
+                    "plan_id": plan["plan_id"],
+                    "provider_id": primary["provider_id"],
+                    "execution_mode": execution_mode,
+                },
+                risk="low",
+            )
+        if execution_mode == "low_cost":
+            append_audit_event(
+                "low_cost_execution_mode",
+                contract["requested_by"],
+                {"capability_id": contract["capability_id"], "plan_id": plan["plan_id"], "external_request_executed": False},
+                risk="low",
+            )
         append_audit_event(
             "fallback_prepared",
             contract["requested_by"],
@@ -107,7 +127,7 @@ class CapabilityRoutingEngine:
             if profile["provider_id"] in disabled:
                 profile["enabled"] = False
                 profile["availability_status"] = "disabled_by_routing_input"
-        return profiles
+        return [annotate_provider(profile, profiles) for profile in profiles]
 
     def _evaluate_provider(self, profile: dict, contract: dict, execution_mode: str) -> dict:
         compatible, reason = self._compatibility(profile, contract)
@@ -195,6 +215,16 @@ class CapabilityRoutingEngine:
             score += 0.18
         if contract["cost_priority"] == "low_cost" and profile["cost_profile"] == "low_cost":
             score += 0.08
+        if profile.get("provider_role") in {"economic_primary", "economic_fallback"} and contract["capability_type"] in {
+            "analysis",
+            "summarization",
+            "documentation",
+            "coding",
+            "frontend_generation",
+            "backend_generation",
+            "debugging",
+        }:
+            score += 0.08
         return min(1.0, score)
 
     def _weights(self, execution_mode: str) -> dict[str, float]:
@@ -251,7 +281,7 @@ class CapabilityRoutingEngine:
             return "low_cost"
         if contract["cost_priority"] == "premium_allowed" or contract["capability_type"] == "repair" or contract["reasoning_level"] == "extreme":
             return "premium"
-        return "balanced"
+        return "low_cost"
 
     def _risk_level(self, contract: dict, execution_mode: str) -> str:
         if contract["capability_type"] == "repair" or contract["reasoning_level"] == "extreme" or execution_mode == "experimental":
@@ -272,6 +302,7 @@ class CapabilityRoutingEngine:
             "context_size": contract["context_size"],
             "fallback_allowed": contract["fallback_allowed"],
             "capability_type": contract["capability_type"],
+            "economic_provider_priority": " -> ".join(economic_provider_ids()) or "none",
         }
 
     def _routing_reason(self, contract: dict, primary: dict | None, fallback_tree: list[dict], execution_mode: str) -> str:
@@ -284,6 +315,13 @@ class CapabilityRoutingEngine:
         if not primary:
             return "No compatible provider selected."
         return f"{primary['provider_id']} selected as primary provider profile."
+
+    def _selection_key(self, item: dict, execution_mode: str) -> tuple:
+        profile = item["profile"]
+        if execution_mode == "premium":
+            premium_bias = 0 if profile["premium_provider"] else 1
+            return (premium_bias, -item["compatibility_score"], profile["fallback_priority"], profile["provider_id"])
+        return (-item["compatibility_score"], operational_priority(profile), profile["provider_id"])
 
     def _fallback_detail(self, contract: dict, fallback_tree: list[dict]) -> str:
         if not contract["fallback_allowed"]:

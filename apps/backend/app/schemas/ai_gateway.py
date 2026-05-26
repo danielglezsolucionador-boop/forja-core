@@ -34,6 +34,8 @@ class AIGatewayProviderRecord(BaseModel):
     fallback_priority: int
     premium_provider: bool
     local_provider: bool
+    provider_role: str
+    operational_priority: int
     health: ProviderHealthSnapshot
     notes: str
 
@@ -55,6 +57,8 @@ class GatewayExecutionProfile(BaseModel):
 
 class AIGatewaySnapshot(BaseModel):
     gateway_status: GatewayStatus
+    economic_provider_id: str | None
+    premium_fallback_provider_ids: list[str]
     providers: list[AIGatewayProviderRecord]
     capabilities: list[CapabilityRegistryEntry]
     health: list[ProviderHealthSnapshot]

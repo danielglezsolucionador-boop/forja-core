@@ -13,9 +13,10 @@ from app.core.audit import append_audit_event, read_audit_events, utc_now
 from app.core.config import settings
 from app.core.storage import JsonStore, store
 from app.services.provider_connector_service import ProviderConnectorLayer, provider_connector_layer
+from app.services.provider_priority_service import economic_provider_ids, operational_priority, premium_provider_ids, real_execution_provider_ids
 
 
-ALLOWED_REAL_PROVIDERS = {"openai", "anthropic"}
+PREMIUM_REAL_PROVIDERS = {"openai", "anthropic"}
 ALLOWED_REAL_CAPABILITIES = {"reasoning", "analysis", "summarization", "architecture", "documentation"}
 TASK_OUTPUTS = {
     "readme": ("generated_readme", "Generated README", "README.generated.md"),
@@ -53,7 +54,7 @@ SAFE_MODE_BLOCKLIST = {
     "token",
     "while true",
 }
-PROVIDER_COST_RATE = {"openai": 0.0006, "anthropic": 0.003}
+PROVIDER_COST_RATE = {"deepseek": 0.00014, "qwen": 0.00018, "openai": 0.0006, "anthropic": 0.003}
 WORKSPACE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,79}$")
 
 
@@ -66,11 +67,65 @@ class RealProviderTransportError(RuntimeError):
 
 class HTTPRealProviderTransport:
     def execute(self, provider_id: str, prompt: str, max_tokens: int, timeout_seconds: int) -> dict:
+        if provider_id in {"deepseek", "qwen"}:
+            return self._execute_openai_compatible(provider_id, prompt, max_tokens, timeout_seconds)
         if provider_id == "openai":
             return self._execute_openai(prompt, max_tokens, timeout_seconds)
         if provider_id == "anthropic":
             return self._execute_anthropic(prompt, max_tokens, timeout_seconds)
         raise RealProviderTransportError("invalid_real_provider")
+
+    def _execute_openai_compatible(self, provider_id: str, prompt: str, max_tokens: int, timeout_seconds: int) -> dict:
+        config = self._openai_compatible_config(provider_id)
+        api_key = config["api_key"]
+        if not api_key:
+            raise RealProviderTransportError(f"missing_{provider_id}_credentials", "missing_credentials")
+        payload = {
+            "model": config["model"],
+            "messages": [
+                {"role": "system", "content": "You are FORJA running a small governed low-cost execution."},
+                {"role": "user", "content": prompt},
+            ],
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        try:
+            response = httpx.post(
+                f"{config['base_url'].rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=timeout_seconds,
+            )
+            response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise RealProviderTransportError("provider_timeout", "timeout") from exc
+        except httpx.HTTPError as exc:
+            raise RealProviderTransportError("provider_http_error", "provider_failure_detected") from exc
+        data = response.json()
+        text = ""
+        choices = data.get("choices") or []
+        if choices:
+            message = choices[0].get("message", {})
+            text = str(message.get("content", "")).strip()
+        return {"text": text, "model": data.get("model", config["model"]), "usage": data.get("usage", {})}
+
+    def _openai_compatible_config(self, provider_id: str) -> dict:
+        if provider_id == "deepseek":
+            return {
+                "api_key": os.environ.get("DEEPSEEK_API_KEY", "").strip(),
+                "base_url": os.environ.get("FORJA_DEEPSEEK_BASE_URL", os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com")),
+                "model": os.environ.get("FORJA_DEEPSEEK_MODEL", os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")),
+            }
+        if provider_id == "qwen":
+            return {
+                "api_key": os.environ.get("QWEN_API_KEY", os.environ.get("DASHSCOPE_API_KEY", "")).strip(),
+                "base_url": os.environ.get(
+                    "FORJA_QWEN_BASE_URL",
+                    os.environ.get("QWEN_API_BASE", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+                ),
+                "model": os.environ.get("FORJA_QWEN_MODEL", os.environ.get("QWEN_MODEL", "qwen-plus")),
+            }
+        raise RealProviderTransportError("invalid_openai_compatible_provider")
 
     def _execute_openai(self, prompt: str, max_tokens: int, timeout_seconds: int) -> dict:
         api_key = os.environ.get("OPENAI_API_KEY", "").strip()
@@ -240,6 +295,19 @@ class RealProviderExecutionEngine:
             {"execution_id": execution_id, "provider_id": primary, "credential_exposed": False},
             risk="medium",
         )
+        if primary in economic_provider_ids():
+            append_audit_event(
+                "economic_provider_selected",
+                requested_by,
+                {"execution_id": execution_id, "provider_id": primary, "external_request_executed": False},
+                risk="low",
+            )
+            append_audit_event(
+                "low_cost_execution_mode",
+                requested_by,
+                {"execution_id": execution_id, "provider_id": primary, "max_tokens": max_tokens},
+                risk="low",
+            )
         attempt_chain = [primary]
         if fallback_allowed and fallback and fallback not in attempt_chain:
             attempt_chain.append(fallback)
@@ -308,7 +376,7 @@ class RealProviderExecutionEngine:
             "capability_type": capability_type,
             "task_type": task_type,
             "execution_state": state,
-            "execution_mode": "low_cost_safe" if safe_mode else "controlled_real_ai",
+            "execution_mode": "economic_low_cost" if provider_used in economic_provider_ids() else "low_cost_safe" if safe_mode else "controlled_real_ai",
             "estimated_tokens": estimated_tokens,
             "estimated_cost": estimated_cost,
             "estimated_duration": elapsed,
@@ -340,6 +408,18 @@ class RealProviderExecutionEngine:
             },
             risk="medium",
         )
+        append_audit_event(
+            "provider_execution_completed",
+            requested_by,
+            {
+                "execution_id": execution_id,
+                "provider_used": provider_used,
+                "execution_mode": result["execution_mode"],
+                "estimated_cost": estimated_cost,
+                "external_request_executed": external_request_executed,
+            },
+            risk="low" if provider_used in economic_provider_ids() else "medium",
+        )
         return self._save_and_enrich(result)
 
     def latest(self) -> dict | None:
@@ -351,7 +431,9 @@ class RealProviderExecutionEngine:
         return {
             "engine_status": "ready",
             "safe_mode_default": True,
-            "supported_real_providers": sorted(ALLOWED_REAL_PROVIDERS),
+            "economic_provider_id": economic_provider_ids()[0] if economic_provider_ids() else None,
+            "premium_fallback_provider_ids": premium_provider_ids(),
+            "supported_real_providers": real_execution_provider_ids(),
             "supported_tasks": sorted(TASK_OUTPUTS),
             "max_tokens": 700,
             "max_execution_time": 45,
@@ -369,9 +451,9 @@ class RealProviderExecutionEngine:
         task_type = payload.get("task_type", "")
         objective = str(payload.get("objective", "")).strip()
         workspace_id = payload.get("workspace_id")
-        if provider_id and provider_id not in ALLOWED_REAL_PROVIDERS:
+        if provider_id and provider_id not in real_execution_provider_ids():
             return "invalid_provider"
-        if fallback_provider_id and fallback_provider_id not in ALLOWED_REAL_PROVIDERS:
+        if fallback_provider_id and fallback_provider_id not in real_execution_provider_ids():
             return "invalid_fallback_provider"
         if workspace_id and (
             not WORKSPACE_ID_RE.match(str(workspace_id).strip())
@@ -419,15 +501,16 @@ class RealProviderExecutionEngine:
         real_records = {
             provider["provider_id"]: provider
             for provider in snapshot["providers"]
-            if provider["provider_id"] in ALLOWED_REAL_PROVIDERS
+            if provider["provider_id"] in real_execution_provider_ids()
         }
         ready = [
             provider_id
-            for provider_id, record in sorted(real_records.items(), key=lambda item: item[1]["fallback_priority"])
+            for provider_id, record in sorted(real_records.items(), key=lambda item: operational_priority(item[1]))
             if record["connector_state"] == "ready" and capability_type in record["supported_capabilities"]
         ]
 
-        primary_attempted = requested or (ready[0] if ready else None)
+        economic = economic_provider_ids()
+        primary_attempted = requested or (ready[0] if ready else economic[0] if economic else None)
         primary = None
         failure_reason = ""
         if requested:
@@ -443,7 +526,8 @@ class RealProviderExecutionEngine:
         elif ready:
             primary = ready[0]
         else:
-            failure_reason = "no_real_provider_ready"
+            attempted_record = real_records.get(primary_attempted or "")
+            failure_reason = attempted_record["connector_state"] if attempted_record else "no_real_provider_ready"
 
         fallback = None
         fallback_candidates = [provider_id for provider_id in ready if provider_id != primary_attempted and provider_id != primary]
@@ -568,7 +652,7 @@ class RealProviderExecutionEngine:
             "capability_type": payload.get("capability_type", "documentation"),
             "task_type": payload.get("task_type", "summary"),
             "execution_state": "failed",
-            "execution_mode": "low_cost_safe" if payload.get("safe_mode", True) else "controlled_real_ai",
+            "execution_mode": self._execution_mode_for_payload(payload),
             "estimated_tokens": 0,
             "estimated_cost": 0.0,
             "estimated_duration": 0.0,
@@ -607,6 +691,14 @@ class RealProviderExecutionEngine:
         payload = self._store.read({"records": [], "rate_limits": {}})
         return payload.get("records", [])
 
+    def _execution_mode_for_payload(self, payload: dict) -> str:
+        provider_id = self._clean_provider(payload.get("provider_id"))
+        if provider_id is None or provider_id in economic_provider_ids():
+            return "economic_low_cost"
+        if payload.get("safe_mode", True):
+            return "low_cost_safe"
+        return "controlled_real_ai"
+
     def _save_and_enrich(self, result: dict) -> dict:
         def mutator(payload: dict) -> None:
             payload.setdefault("records", []).append(result)
@@ -620,6 +712,9 @@ class RealProviderExecutionEngine:
             "real_provider_execution_started",
             "provider_connected",
             "real_ai_execution_completed",
+            "economic_provider_selected",
+            "low_cost_execution_mode",
+            "provider_execution_completed",
             "fallback_real_ai_triggered",
             "provider_failure_detected",
         }

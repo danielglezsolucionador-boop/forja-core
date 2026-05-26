@@ -52,9 +52,10 @@ def test_premium_request_routes_to_premium_provider() -> None:
     assert plan["approval_required"] is True
 
 
-def test_frontend_request_routes_to_frontend_specialist() -> None:
+def test_frontend_request_routes_to_economic_frontend_specialist() -> None:
     plan = _plan(_contract(capability_type="frontend_generation", coding_level="high", speed_priority="balanced"))
-    assert plan["primary_provider"]["provider_id"] in {"openai", "gemini"}
+    assert plan["primary_provider"]["provider_id"] == "qwen"
+    assert plan["execution_mode"] == "low_cost"
     assert "frontend_generation" in plan["primary_provider"]["supported_capabilities"]
 
 

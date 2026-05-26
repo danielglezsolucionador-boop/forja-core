@@ -18,7 +18,7 @@ RealProviderExecutionState = Literal[
     "completed",
     "failed",
 ]
-RealProviderExecutionMode = Literal["low_cost_safe", "safe_mode", "controlled_real_ai"]
+RealProviderExecutionMode = Literal["economic_low_cost", "low_cost_safe", "safe_mode", "controlled_real_ai"]
 RealAITaskType = Literal["readme", "summary", "architecture_notes", "documentation"]
 RealAIOutputKind = Literal["generated_readme", "generated_summary", "architecture_notes", "technical_documentation", "failure_report"]
 RealAIOutputStatus = Literal["generated", "blocked", "failed", "degraded"]

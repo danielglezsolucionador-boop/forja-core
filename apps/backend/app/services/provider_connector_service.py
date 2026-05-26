@@ -15,6 +15,9 @@ PROVIDER_ENV_VARS = {
     "deepseek": "DEEPSEEK_API_KEY",
     "qwen": "QWEN_API_KEY",
 }
+PROVIDER_ENV_ALIASES = {
+    "qwen": ("QWEN_API_KEY", "DASHSCOPE_API_KEY"),
+}
 PROVIDER_CREDENTIAL_PATTERNS = {
     "openai": {"prefixes": ("sk-",), "min_length": 18},
     "anthropic": {"prefixes": ("sk-ant-",), "min_length": 18},
@@ -129,6 +132,8 @@ class BaseProviderConnector(ProviderConnectorInterface):
             return "not_required", "local_connector_prepared"
         value = os.environ.get(str(self.env_var), "")
         if not value:
+            value = self._credential_alias_value()
+        if not value:
             return "missing", "missing_credentials_detected"
         if not self._valid_credential_format(value):
             return "invalid", "invalid_credential_format"
@@ -153,6 +158,13 @@ class BaseProviderConnector(ProviderConnectorInterface):
             return True
         stripped = value.strip()
         return len(stripped) >= pattern["min_length"] and any(stripped.startswith(prefix) for prefix in pattern["prefixes"])
+
+    def _credential_alias_value(self) -> str:
+        for env_var in PROVIDER_ENV_ALIASES.get(self.provider_id, ()):
+            value = os.environ.get(env_var, "").strip()
+            if value:
+                return value
+        return ""
 
     def _simulated_latency(self, connector_state: str) -> int:
         if connector_state == "ready":

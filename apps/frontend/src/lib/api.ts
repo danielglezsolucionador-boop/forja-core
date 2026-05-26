@@ -161,7 +161,7 @@ export type RealProviderExecutionResult = {
     | "degraded_mode"
     | "completed"
     | "failed";
-  execution_mode: "low_cost_safe" | "safe_mode" | "controlled_real_ai";
+  execution_mode: "economic_low_cost" | "low_cost_safe" | "safe_mode" | "controlled_real_ai";
   estimated_tokens: number;
   estimated_cost: number;
   estimated_duration: number;
@@ -201,6 +201,8 @@ export type AIGatewayProviderRecord = {
   fallback_priority: number;
   premium_provider: boolean;
   local_provider: boolean;
+  provider_role: string;
+  operational_priority: number;
   health: ProviderHealthSnapshot;
   notes: string;
 };
@@ -212,6 +214,8 @@ export type CapabilityRegistryEntry = {
 };
 export type AIGatewaySnapshot = {
   gateway_status: "active" | "degraded";
+  economic_provider_id: string | null;
+  premium_fallback_provider_ids: string[];
   providers: AIGatewayProviderRecord[];
   capabilities: CapabilityRegistryEntry[];
   health: ProviderHealthSnapshot[];
