@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  background: #020617;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #020617;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button {
+  font: inherit;
+}
