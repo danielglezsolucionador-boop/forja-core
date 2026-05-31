@@ -1,24 +1,36 @@
-FORJA
-=====
+# FORJA Knowledge Core and Local Runtime
 
-Operational source path:
-`C:\Users\admin\Desktop\forja`
+FORJA is the local technology factory for the ecosystem. This repository contains the phase documentation plus a local operational implementation for backend, frontend, reusable modules, governance, workflow orchestration, and auditability.
 
-Current state:
-- vNext operator experience completed locally.
-- Source traceability initialized in Phase E2.
-- Official remote/cloud deployment remains blocked until a GitHub repository and cloud credentials are configured.
+## Operating Rules
 
-Cloud foundation target:
-- Frontend: Vercel, root directory `frontend`, build command `npm run build`, output directory `build`.
-- Backend: Render, root directory `backend`, build command `pip install -r requirements.txt`, start command `uvicorn main:app --host 0.0.0.0 --port $PORT`.
+- Local-first: no cloud, no push, no remote repository.
+- Zero write policy: factory execution cannot write generated output without a human approval record.
+- Human-in-the-loop: risky actions remain blocked until explicitly approved.
+- No fake readiness: endpoints report disabled, blocked, or pending states honestly.
+- Hermes isolation: this repository does not modify Hermes runtime, backend, dashboard, Render, Railway, or production.
 
-Required production secrets:
-- `JWT_SECRET_KEY`
-- `FORJA_ADMIN_USERNAME`
-- `FORJA_ADMIN_PASSWORD_HASH`
-- `ALLOWED_ORIGINS`
-- `REACT_APP_FORJA_API_URL` for frontend builds
+## Local Commands
 
-Security note:
-FORJA does not ship a default admin password. If auth is not configured, protected login returns an unavailable/auth-not-configured state instead of accepting hardcoded credentials.
+Backend:
+
+```powershell
+cd C:\Users\admin\forja-knowledge-core\apps\backend
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8100
+```
+
+Frontend:
+
+```powershell
+cd C:\Users\admin\forja-knowledge-core\apps\frontend
+npm install
+npm run dev
+```
+
+Validation:
+
+```powershell
+cd C:\Users\admin\forja-knowledge-core
+python -m pytest apps/backend/tests -q
+python tools/validate_forja.py
+```

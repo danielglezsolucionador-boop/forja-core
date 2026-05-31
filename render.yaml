@@ -1,24 +1,57 @@
 services:
   - type: web
     name: forja-backend
-    env: python
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    runtime: python
+    rootDir: .
+    plan: starter
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    preDeployCommand: PYTHONPATH=apps/backend python -m alembic upgrade head
+    startCommand: bash apps/backend/start_render.sh
+    healthCheckPath: /health
     envVars:
-      - key: APP_ENV
-        value: production
-      - key: DEBUG
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: FORJA_APP_NAME
+        value: forja-backend
+      - key: FORJA_APP_VERSION
+        value: 0.1.0
+      - key: FORJA_APP_ENV
+        value: staging
+      - key: FORJA_DEBUG
         value: "false"
-      - key: ALLOWED_ORIGINS
-        sync: false
-      - key: JWT_SECRET_KEY
-        sync: false
+      - key: FORJA_LOG_LEVEL
+        value: INFO
+      - key: FORJA_DATABASE_URL
+        fromDatabase:
+          name: forja-postgres
+          property: connectionString
+      - key: FORJA_DATABASE_SSL
+        value: "true"
+      - key: FORJA_DB_AUTO_MIGRATE
+        value: "false"
       - key: FORJA_ADMIN_USERNAME
+        value: forja_admin
+      - key: FORJA_ADMIN_PASSWORD
         sync: false
-      - key: FORJA_ADMIN_PASSWORD_HASH
+      - key: FORJA_JWT_SECRET
         sync: false
-      - key: OPENROUTER_API_KEY
+      - key: FORJA_FRONTEND_ORIGIN
         sync: false
-      - key: OPENROUTER_MODEL
-        value: openrouter/auto
+      - key: FORJA_CORS_ORIGINS
+        sync: false
+
+  - type: web
+    name: forja-frontend
+    runtime: static
+    rootDir: apps/frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_FORJA_API_URL
+        sync: false
+
+databases:
+  - name: forja-postgres
+    databaseName: forja
+    user: forja
+    plan: starter
