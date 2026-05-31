@@ -18,3 +18,7 @@ services:
         sync: false
       - key: FORJA_ADMIN_PASSWORD_HASH
         sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: openrouter/auto

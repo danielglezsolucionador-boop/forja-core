@@ -9,12 +9,14 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     LOG_LEVEL: str = 'INFO'
     SECRET_KEY: str = ''
-    ALLOWED_ORIGINS: str = 'http://localhost:3000'
+    ALLOWED_ORIGINS: str = 'http://localhost:3000,http://127.0.0.1:3000,https://forja-frontend.onrender.com'
     JWT_SECRET_KEY: str = ''
     JWT_ALGORITHM: str = 'HS256'
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     FORJA_ADMIN_USERNAME: str = ''
     FORJA_ADMIN_PASSWORD_HASH: str = ''
+    OPENROUTER_API_KEY: str = ''
+    OPENROUTER_MODEL: str = 'openrouter/auto'
 
     @property
     def auth_configured(self) -> bool:
@@ -25,7 +27,7 @@ class Settings(BaseSettings):
         )
 
     class Config:
-        env_file = '.env'
+        env_file = None
         env_file_encoding = 'utf-8'
 
 
