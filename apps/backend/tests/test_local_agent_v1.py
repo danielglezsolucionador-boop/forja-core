@@ -3,9 +3,16 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.local_agent_service import LocalAgentPolicyEngine
 
 
 client = TestClient(app)
+
+
+def test_local_agent_secret_policy_does_not_flag_task_ids_as_openai_keys() -> None:
+    policy = LocalAgentPolicyEngine()
+    assert policy.contains_secret({"local_path": "D:/ECOSYSTEM/FORJA_LOCAL_AGENT/runs/task-1234567890abcdef/backup.zip"}) is False
+    assert policy.contains_secret({"note": "sk-this-must-not-pass-1234567890"}) is True
 
 
 def _register_agent() -> tuple[dict, dict]:

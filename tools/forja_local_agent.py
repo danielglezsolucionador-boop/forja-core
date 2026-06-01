@@ -23,7 +23,7 @@ SECRET_PATTERNS = [
         r"password",
         r"private[_-]?key",
         r"secret",
-        r"sk-[a-z0-9_-]+",
+        r"(?<![a-z0-9])sk-[a-z0-9_-]{16,}",
         r"token",
     ]
 ]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import hashlib
+import re
 import secrets
 import uuid
 from typing import Any
@@ -50,6 +51,9 @@ SECRET_MARKERS = [
     "secret",
     "sk-",
     "token",
+]
+SECRET_TEXT_PATTERNS = [
+    re.compile(r"(?<![a-z0-9])sk-[a-z0-9_-]{16,}", re.IGNORECASE),
 ]
 
 
@@ -115,7 +119,8 @@ class LocalAgentPolicyEngine:
         if isinstance(value, list):
             return any(self.contains_secret(item) for item in value)
         text = str(value).lower()
-        return any(marker in text for marker in SECRET_MARKERS)
+        simple_markers = [marker for marker in SECRET_MARKERS if marker != "sk-"]
+        return any(marker in text for marker in simple_markers) or any(pattern.search(text) for pattern in SECRET_TEXT_PATTERNS)
 
     def _task_type(self, instruction: str) -> str:
         if "deploy" in instruction or "desplieg" in instruction:
