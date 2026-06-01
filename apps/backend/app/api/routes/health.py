@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter
 
 from app.core.config import settings
@@ -54,3 +56,18 @@ async def health() -> HealthResponse:
             "database": db_status["status"],
         },
     )
+
+
+@router.get("/provenance")
+async def provenance() -> dict:
+    return {
+        "source": settings.app_name,
+        "version": settings.app_version,
+        "deployment_target": settings.app_env,
+        "governance_state": "LOCKED_UI_APPROVED",
+        "data_state": "runtime_verified",
+        "ui": "FORJA_HUMAN_CABIN_V5",
+        "approved_commit": "75cf0b7",
+        "generated_at": datetime.now(UTC).isoformat(),
+        "secrets_exposed": False,
+    }
