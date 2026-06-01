@@ -94,6 +94,19 @@ def test_runtime_is_honest_about_no_busy_loop() -> None:
     assert payload["runtime_loop"] == "not_started_by_design"
     assert payload["zero_write_policy"] is True
     assert payload["database"]["status"] in {"not_configured", "ok", "unavailable"}
+    snapshot = payload["snapshot"]
+    metric_labels = {metric["label"] for metric in snapshot["metrics"]}
+    assert "Apps en construccion" in metric_labels
+    assert "Tareas activas" in metric_labels
+    assert "Bloqueos" in metric_labels
+    assert "Aprobaciones pendientes" in metric_labels
+    assert "Entregas listas" in metric_labels
+    assert snapshot["memory"]["connected"] is True
+    assert snapshot["memory"]["primary_source"] == "docs/ecosystem-memory/core/FORJA_PHASE2_DECISION_TRACE.md"
+    assert snapshot["constructionQueue"]
+    assert snapshot["deliveries"]
+    assert snapshot["flow"]
+    assert snapshot["activity"]
 
 
 def test_factory_execution_blocks_without_human_approval() -> None:

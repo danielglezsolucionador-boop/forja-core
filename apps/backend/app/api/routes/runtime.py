@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.core.audit import read_audit_events
 from app.core.config import settings
 from app.db.session import database_status
+from app.services.human_cabin_snapshot_service import human_cabin_snapshot_service
 from app.services.provider_connector_service import provider_connector_layer
 from app.services.provider_service import provider_service
 
@@ -40,6 +41,7 @@ async def runtime_status() -> dict:
         "security_warnings": settings.security_warnings(),
         "providers": provider_service.list_providers(),
         "audit_events": len(read_audit_events(1000)),
+        "snapshot": human_cabin_snapshot_service.snapshot(),
         "notes": [
             "FORJA local runtime exposes status and controlled workflows.",
             "No background execution loop is running in this phase.",
