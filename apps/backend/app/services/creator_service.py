@@ -6,6 +6,7 @@ from typing import Any
 
 from app.core.audit import append_audit_event, read_audit_events, utc_now
 from app.core.storage import store
+from app.services.ecosystem_memory_service import ecosystem_memory_service
 from app.services.provider_connector_service import provider_connector_layer
 from app.services.real_provider_execution_service import real_provider_execution_engine
 
@@ -42,6 +43,7 @@ class CreatorService:
         self._capability_consumptions = store("creator_capability_consumptions")
         self._capability_runtime_events = store("creator_capability_runtime_events")
         self._real_execution_engine = real_provider_execution_engine
+        self._ecosystem_memory = ecosystem_memory_service
 
     def console_state(self, limit: int = 50) -> dict:
         return {
@@ -595,11 +597,12 @@ class CreatorService:
         }
 
     def _create_real_chat_command(self, payload: dict, now: str, request_type: str, risk_level: str) -> dict:
+        memory_snapshot = self._ecosystem_memory.snapshot()
         real_result = self._real_execution_engine.execute(
             {
                 "capability_type": "summarization",
                 "task_type": "summary",
-                "objective": self._real_chat_objective(payload),
+                "objective": self._real_chat_objective(payload, memory_snapshot),
                 "requested_by": payload["sender"],
                 "provider_id": REAL_CHAT_PROVIDER_ID,
                 "max_tokens": REAL_CHAT_MAX_TOKENS,
@@ -629,7 +632,7 @@ class CreatorService:
             "governance": {
                 "risk_level": risk_level,
                 "blocked_reason": blocked_reason,
-                "required_permissions": ["safe_mode=true", "provider=openrouter", "zero_write_policy"],
+                "required_permissions": ["safe_mode=true", "provider=openrouter", "zero_write_policy", "ecosystem_memory=read_only"],
                 "provider_status": provider_status,
                 "approval_status": "not_required",
             },
@@ -637,6 +640,7 @@ class CreatorService:
                 self._event(now, "command.received", f"Command received from {payload['sender']}."),
                 self._event(now, "request.classified", f"Classified as {request_type} with {risk_level} risk."),
                 self._event(now, "provider.boundary_checked", "OpenRouter real chat path selected with safe-mode limits."),
+                self._event(now, "ecosystem_memory.loaded", "Existing ecosystem memory sources loaded in read-only mode."),
             ],
             "execution_logs": [
                 self._log(now, "info", "Request accepted by real chat execution engine."),
@@ -649,7 +653,7 @@ class CreatorService:
                 self._event(str(event.get("timestamp", now)), f"real_ai.{event.get('event', 'event')}", str(event.get("detail", "")))
             )
         if success:
-            record["outputs"].append(self._real_chat_output(record, real_result, now))
+            record["outputs"].append(self._real_chat_output(record, real_result, now, memory_snapshot))
             record["timeline"].append(self._event(now, "chat.completed", "FORJA returned a real provider response to the original sender."))
         else:
             record["outputs"].append(self._blocked_output(record, response, now))
@@ -889,6 +893,7 @@ class CreatorService:
         return [
             f"classify_request_type:{request_type}",
             f"classify_risk:{risk_level}",
+            "read_existing_ecosystem_memory",
             "validate_openrouter_connector",
             "execute_real_chat_safe_mode",
             "record_audit_trace",
@@ -947,7 +952,8 @@ class CreatorService:
             created_at=created_at,
         )
 
-    def _real_chat_output(self, record: dict, real_result: dict, created_at: str) -> dict:
+    def _real_chat_output(self, record: dict, real_result: dict, created_at: str, memory_snapshot: dict | None = None) -> dict:
+        memory_snapshot = memory_snapshot or self._ecosystem_memory.snapshot()
         return self._make_output(
             record,
             output_type="execution_summary",
@@ -969,6 +975,13 @@ class CreatorService:
                 "fallback_triggered": real_result.get("fallback_triggered"),
                 "safe_mode": real_result.get("safe_mode"),
                 "logical_outputs": [output.get("logical_path") for output in real_result.get("outputs", []) if output.get("logical_path")],
+                "ecosystem_memory": {
+                    "connected": memory_snapshot.get("connected"),
+                    "primary_source": memory_snapshot.get("primary_source", {}).get("path"),
+                    "additional_sources": [source.get("path") for source in memory_snapshot.get("additional_sources", []) if source.get("exists")],
+                    "registered_apps": memory_snapshot.get("registered_apps", []),
+                    "apps_missing_from_primary_memory": memory_snapshot.get("apps_missing_from_primary_memory", []),
+                },
                 "secrets_exposed": False,
             },
             created_at=created_at,
@@ -1085,9 +1098,15 @@ class CreatorService:
             return {}
         return next((provider for provider in snapshot.get("providers", []) if provider.get("provider_id") == REAL_CHAT_PROVIDER_ID), {})
 
-    def _real_chat_objective(self, payload: dict) -> str:
+    def _real_chat_objective(self, payload: dict, memory_snapshot: dict | None = None) -> str:
         command = " ".join(str(payload.get("command", "")).split())
-        return f"Responde como FORJA en conversacion operativa breve y util. Mensaje del usuario: {command}"
+        memory_context = self._ecosystem_memory.prompt_context(memory_snapshot)
+        objective = (
+            "Responde como FORJA en conversacion operativa breve y util. "
+            "Usa la memoria real conectada si el mensaje pregunta por aplicaciones, prioridades, bloqueos, activos o faltantes. "
+            f"Mensaje del usuario: {command}\n{memory_context}"
+        )
+        return objective[:1800]
 
     def _execution_policy(self) -> dict:
         return {

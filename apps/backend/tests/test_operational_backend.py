@@ -35,6 +35,29 @@ class FakeCreatorChatEngine:
         }
 
 
+class FakeEcosystemMemory:
+    def snapshot(self) -> dict:
+        return {
+            "connected": True,
+            "primary_source": {"path": "docs/ecosystem-memory/core/FORJA_PHASE2_DECISION_TRACE.md"},
+            "additional_sources": [{"path": "docs/ecosystem-memory/core/LONGITUDINAL_ECOSYSTEM_MEMORY.md", "exists": True}],
+            "registered_apps": ["CEREBRO", "CENTINELA", "PLUMA"],
+            "apps_in_primary_memory": ["CEREBRO", "CENTINELA"],
+            "apps_missing_from_primary_memory": ["PLUMA"],
+            "active_apps": ["CEREBRO", "CENTINELA", "PLUMA"],
+            "priorities": ["Cerebro decision trace baseline"],
+            "blockers": ["Cerebro lacked governance enforcement before provider execution"],
+            "construction": ["Cerebro now has governance wrapper"],
+        }
+
+    def prompt_context(self, snapshot: dict | None = None) -> str:
+        return (
+            r"Fuentes conectadas: FORJA_PHASE2_DECISION_TRACE.md; "
+            "Apps registradas en docs/ecosystem-memory/apps: CEREBRO, CENTINELA, PLUMA; "
+            "Apps existentes que faltan en memoria maestra: PLUMA"
+        )
+
+
 def login() -> str:
     response = client.post("/auth/login", json={"username": settings.admin_username, "password": settings.admin_password})
     assert response.status_code == 200
@@ -133,6 +156,25 @@ def test_creator_console_uses_openrouter_real_chat(monkeypatch) -> None:
     state = client.get("/creator/console")
     assert state.status_code == 200
     assert state.json()["provider_state"] == "openrouter_ready"
+
+
+def test_creator_console_injects_existing_ecosystem_memory(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine("FORJA responde usando memoria real.")
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+    monkeypatch.setattr(creator_service, "_ecosystem_memory", FakeEcosystemMemory())
+
+    response = client.post(
+        "/creator/commands",
+        json={"sender": "user", "command": "Que aplicaciones existen?", "details": "Safe-mode OpenRouter response enabled."},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    objective = fake_engine.payloads[0]["objective"]
+    assert "FORJA_PHASE2_DECISION_TRACE.md" in objective
+    assert "CEREBRO, CENTINELA, PLUMA" in objective
+    assert "PLUMA" in payload["outputs"][0]["content"]["ecosystem_memory"]["apps_missing_from_primary_memory"]
+    assert "ecosystem_memory=read_only" in payload["governance"]["required_permissions"]
+    assert any(event["event"] == "ecosystem_memory.loaded" for event in payload["timeline"])
 
 
 def test_creator_execution_requires_approval_then_completes_metadata_only() -> None:
