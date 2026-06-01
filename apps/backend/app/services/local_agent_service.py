@@ -141,7 +141,7 @@ class LocalAgentPolicyEngine:
             return "test"
         if "auditar" in instruction or "auditoria" in instruction or "diagnost" in instruction:
             return "audit"
-        if "reporte" in instruction or "report" in instruction:
+        if "reporte" in instruction or "report" in instruction or "inventario" in instruction or ".md" in instruction or "guarda" in instruction or "guardar" in instruction:
             return "report_generation"
         if "leer" in instruction or "listar" in instruction:
             return "read"
@@ -366,7 +366,7 @@ class LocalAgentService:
         self.heartbeat(agent)
         tasks = self._tasks.read([])
         candidates: list[dict] = []
-        for task in tasks:
+        for task in reversed(tasks):
             if task.get("status") != "queued":
                 continue
             decision = self._policy.evaluate_agent(task, agent, payload)

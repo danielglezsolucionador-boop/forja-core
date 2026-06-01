@@ -483,7 +483,7 @@ function ChatForja({ snapshot, lines }) {
       setChatStatus(data.status || "UNKNOWN");
       setMessages((current) => [
         ...current,
-        { role: "forja", text: data.reply || "AI_CHAT_NOT_CONFIGURED" },
+        { role: "forja", text: data.reply || "FORJA recibio la peticion, pero el backend no devolvio una respuesta conversacional." },
       ]);
     } catch (error) {
       setChatStatus("error");

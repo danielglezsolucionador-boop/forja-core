@@ -213,7 +213,7 @@ def provenance_payload():
 def chat_status_payload():
     configured = bool(settings.OPENROUTER_API_KEY.strip())
     return {
-        'reply': 'OPENROUTER_CONFIGURED' if configured else 'AI_CHAT_NOT_CONFIGURED',
+        'reply': 'OPENROUTER_CONFIGURED' if configured else 'OPENROUTER_NOT_CONFIGURED',
         'status': 'ok' if configured else 'not_configured',
         'provider': 'openrouter',
     }

@@ -32,8 +32,9 @@ OUTPUT_TYPE_BY_REQUEST = {
 }
 
 REAL_CHAT_PROVIDER_ID = "openrouter"
-REAL_CHAT_MAX_TOKENS = 180
+REAL_CHAT_MAX_TOKENS = 260
 REAL_CHAT_TIMEOUT_SECONDS = 20
+REAL_CHAT_RATE_LIMIT_MAX_REQUESTS = 12
 
 
 class CreatorService:
@@ -610,6 +611,7 @@ class CreatorService:
                 "safe_mode": True,
                 "fallback_allowed": False,
                 "allow_real_request": True,
+                "rate_limit_max_requests": REAL_CHAT_RATE_LIMIT_MAX_REQUESTS,
             }
         )
         success = bool(real_result.get("response_received")) and real_result.get("execution_state") in {"completed", "degraded_mode"}

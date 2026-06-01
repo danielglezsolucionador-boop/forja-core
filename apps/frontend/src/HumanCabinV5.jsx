@@ -40,6 +40,10 @@ const promptExamples = [
   "Que sigue?",
 ];
 
+function delay(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function normalizedStatus(status) {
   return String(status || "UNKNOWN").toUpperCase();
 }
@@ -432,10 +436,10 @@ function ChatForja({ snapshot, lines }) {
 
   useEffect(() => {
     let alive = true;
-    fetch(apiUrl("/creator/console"), { headers: { Accept: "application/json" } })
+    fetch(apiUrl("/api/chat"), { headers: { Accept: "application/json" } })
       .then((response) => response.json())
       .then((data) => {
-        if (alive) setChatStatus(data.provider_state || data.mode || "UNKNOWN");
+        if (alive) setChatStatus(data.status || data.provider_state || data.mode || "UNKNOWN");
       })
       .catch(() => {
         if (alive) setChatStatus("error");
@@ -446,6 +450,60 @@ function ChatForja({ snapshot, lines }) {
     };
   }, []);
 
+  function contextPayload() {
+    return JSON.stringify({
+      globalStatus: normalizedStatus(lines.find((line) => line.key === "status")?.status),
+      directorLines: lines.map((line) => ({
+        label: line.label,
+        status: line.status,
+        text: line.text,
+      })),
+      snapshot: {
+        constructionQueue: snapshot.constructionQueue || [],
+        approvals: snapshot.approvals || [],
+        blockers: snapshot.blockers || [],
+        deliveries: snapshot.deliveries || [],
+        flow: snapshot.flow || [],
+        memory: snapshot.memory || {},
+        localAgent: snapshot.localAgent || {},
+      },
+    });
+  }
+
+  function replyFromPayload(data) {
+    if (data?.reply) return data.reply;
+    if (data?.response) return data.response;
+    if (data?.detail) return `FORJA no pudo completar la peticion: ${JSON.stringify(data.detail)}`;
+    return "FORJA recibio la peticion, pero el backend no devolvio una respuesta conversacional.";
+  }
+
+  async function pollLocalAgentTask(taskId) {
+    for (let attempt = 0; attempt < 18; attempt += 1) {
+      await delay(5000);
+      try {
+        const response = await fetch(apiUrl(`/local-agent/tasks/${taskId}`), {
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) continue;
+        const task = await response.json();
+        if (["completed", "failed", "blocked", "cancelled", "rolled_back"].includes(task.status)) {
+          const artifactNames = (task.artifacts || []).map((artifact) => artifact.name).filter(Boolean).join(", ");
+          const result = task.result?.human_cabin_summary || task.result?.summary || `Tarea ${task.status}.`;
+          setMessages((current) => [
+            ...current,
+            {
+              role: "forja",
+              text: `Local Agent ${task.status}: ${result}${artifactNames ? ` Entregable: ${artifactNames}.` : ""}`,
+            },
+          ]);
+          return;
+        }
+      } catch {
+        return;
+      }
+    }
+  }
+
   async function submitPrompt(prompt) {
     const cleanPrompt = prompt.trim();
     if (!cleanPrompt) return;
@@ -453,43 +511,35 @@ function ChatForja({ snapshot, lines }) {
     setInput("");
     setSending(true);
     try {
-      const response = await fetch(apiUrl("/creator/commands"), {
+      const response = await fetch(apiUrl("/api/chat"), {
         method: "POST",
         headers: {
           "Accept": "application/json",
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sender: "user",
-          command: cleanPrompt,
-          details: JSON.stringify({
-            globalStatus: normalizedStatus(lines.find((line) => line.key === "status")?.status),
-            directorLines: lines.map((line) => ({
-              label: line.label,
-              status: line.status,
-              text: line.text,
-            })),
-            snapshot: {
-              constructionQueue: snapshot.constructionQueue || [],
-              approvals: snapshot.approvals || [],
-              blockers: snapshot.blockers || [],
-              deliveries: snapshot.deliveries || [],
-              flow: snapshot.flow || [],
-            },
-          }),
+          message: cleanPrompt,
+          app: "FORJA",
+          context: contextPayload(),
         }),
       });
       const data = await response.json();
-      setChatStatus(data.governance?.provider_status || data.status || "UNKNOWN");
+      if (!response.ok) {
+        throw new Error(replyFromPayload(data));
+      }
+      setChatStatus(data.provider || data.status || "UNKNOWN");
       setMessages((current) => [
         ...current,
-        { role: "forja", text: data.response || "AI_CHAT_NOT_CONFIGURED" },
+        { role: "forja", text: replyFromPayload(data) },
       ]);
+      if (data.local_agent_task?.task_id) {
+        pollLocalAgentTask(data.local_agent_task.task_id);
+      }
     } catch (error) {
       setChatStatus("error");
       setMessages((current) => [
         ...current,
-        { role: "forja", text: "OPENROUTER_ERROR: No pude contactar el backend de chat." },
+        { role: "forja", text: error.message || "FORJA no pudo contactar el backend de chat." },
       ]);
     } finally {
       setSending(false);

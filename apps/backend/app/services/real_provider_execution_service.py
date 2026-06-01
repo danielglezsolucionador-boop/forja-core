@@ -262,7 +262,8 @@ class RealProviderExecutionEngine:
                 rate_limit_remaining=RATE_LIMIT_MAX_REQUESTS,
             )
 
-        rate = self._check_rate_limit(requested_by)
+        rate_limit_max_requests = int(payload.get("rate_limit_max_requests", RATE_LIMIT_MAX_REQUESTS))
+        rate = self._check_rate_limit(requested_by, rate_limit_max_requests)
         if not rate["allowed"]:
             return self._failed_result(execution_id, payload, timeline, "rate_limit_exceeded", "blocked", rate["remaining"])
 
@@ -504,17 +505,17 @@ class RealProviderExecutionEngine:
                     return "safe_mode_blocked"
         return None
 
-    def _check_rate_limit(self, actor: str) -> dict:
+    def _check_rate_limit(self, actor: str, max_requests: int = RATE_LIMIT_MAX_REQUESTS) -> dict:
         now = time.time()
 
         def mutator(payload: dict) -> dict:
             buckets = payload.setdefault("rate_limits", {})
             records = buckets.setdefault(actor, [])
             records[:] = [float(item) for item in records if now - float(item) < RATE_LIMIT_WINDOW_SECONDS]
-            if len(records) >= RATE_LIMIT_MAX_REQUESTS:
+            if len(records) >= max_requests:
                 return {"allowed": False, "remaining": 0}
             records.append(now)
-            return {"allowed": True, "remaining": RATE_LIMIT_MAX_REQUESTS - len(records)}
+            return {"allowed": True, "remaining": max_requests - len(records)}
 
         return self._store.update({"records": [], "rate_limits": {}}, mutator)
 

@@ -177,7 +177,7 @@ def test_api_chat_compatibility_uses_creator_console_real_chat(monkeypatch) -> N
 
     status = client.get("/api/chat")
     assert status.status_code == 200
-    assert status.json()["reply"] != "AI_CHAT_NOT_CONFIGURED"
+    assert status.json()["reply"] != "OPENROUTER_NOT_CONFIGURED"
 
     response = client.post(
         "/api/chat",
@@ -192,6 +192,33 @@ def test_api_chat_compatibility_uses_creator_console_real_chat(monkeypatch) -> N
     assert payload["response_received"] is True
     assert payload["secrets_exposed"] is False
     assert fake_engine.payloads[0]["provider_id"] == "openrouter"
+
+
+def test_api_chat_creates_local_agent_report_task_from_human_cabin(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine("FORJA crea la tarea del Local Agent.")
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Genera un inventario de aplicaciones y guardalo como ECOSYSTEM_APPS_REPORT.md",
+            "app": "FORJA",
+            "context": "human cabin report request",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    task = payload["local_agent_task"]
+    assert task["task_id"].startswith("task-")
+    assert task["status"] == "queued"
+    assert task["task_type"] == "report_generation"
+    assert task["desired_output"] == "ECOSYSTEM_APPS_REPORT.md"
+    assert "Local Agent: tarea" in payload["reply"]
+
+    stored = client.get(f"/local-agent/tasks/{task['task_id']}")
+    assert stored.status_code == 200
+    assert stored.json()["policy"]["requires_backup"] is True
+    assert stored.json()["policy"]["requires_rollback_plan"] is True
 
 
 def test_creator_console_injects_existing_ecosystem_memory(monkeypatch) -> None:
