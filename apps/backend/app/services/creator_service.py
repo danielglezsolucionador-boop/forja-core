@@ -6,6 +6,8 @@ from typing import Any
 
 from app.core.audit import append_audit_event, read_audit_events, utc_now
 from app.core.storage import store
+from app.services.provider_connector_service import provider_connector_layer
+from app.services.real_provider_execution_service import real_provider_execution_engine
 
 
 COMMAND_STATUSES = [
@@ -28,6 +30,10 @@ OUTPUT_TYPE_BY_REQUEST = {
     "integration": "integration_plan",
 }
 
+REAL_CHAT_PROVIDER_ID = "openrouter"
+REAL_CHAT_MAX_TOKENS = 180
+REAL_CHAT_TIMEOUT_SECONDS = 20
+
 
 class CreatorService:
     def __init__(self) -> None:
@@ -35,11 +41,12 @@ class CreatorService:
         self._capabilities = store("creator_capability_requests")
         self._capability_consumptions = store("creator_capability_consumptions")
         self._capability_runtime_events = store("creator_capability_runtime_events")
+        self._real_execution_engine = real_provider_execution_engine
 
     def console_state(self, limit: int = 50) -> dict:
         return {
             "mode": "controlled_execution_engine",
-            "provider_state": "provider_disabled_by_governance",
+            "provider_state": self._provider_state(),
             "command_statuses": COMMAND_STATUSES,
             "commands": self.list_commands(limit),
             "outputs": self.list_outputs(limit=100),
@@ -57,6 +64,9 @@ class CreatorService:
         now = utc_now()
         request_type = self._request_type(payload)
         risk_level = self._risk_level(payload)
+        if self._should_use_real_chat(payload):
+            return self._create_real_chat_command(payload, now, request_type, risk_level)
+
         requires_provider = self._requires_provider(payload)
         status = "blocked" if requires_provider else "awaiting_approval"
         response = "blocked_provider_disabled" if requires_provider else "awaiting_human_approval"
@@ -584,6 +594,82 @@ class CreatorService:
             "detail": "FORJA observes approved capability usage without autonomous provider calls or provider switching.",
         }
 
+    def _create_real_chat_command(self, payload: dict, now: str, request_type: str, risk_level: str) -> dict:
+        real_result = self._real_execution_engine.execute(
+            {
+                "capability_type": "summarization",
+                "task_type": "summary",
+                "objective": self._real_chat_objective(payload),
+                "requested_by": payload["sender"],
+                "provider_id": REAL_CHAT_PROVIDER_ID,
+                "max_tokens": REAL_CHAT_MAX_TOKENS,
+                "timeout_seconds": REAL_CHAT_TIMEOUT_SECONDS,
+                "safe_mode": True,
+                "fallback_allowed": False,
+                "allow_real_request": True,
+            }
+        )
+        success = bool(real_result.get("response_received")) and real_result.get("execution_state") in {"completed", "degraded_mode"}
+        response = str(real_result.get("generated_text_preview") or "real_chat_unavailable").strip()
+        status = "completed" if success else "blocked"
+        provider_status = "active" if success else "unavailable"
+        blocked_reason = None if success else response
+        record = {
+            "id": str(uuid.uuid4()),
+            "timestamp": now,
+            "sender": payload["sender"],
+            "reply_to_sender": payload["sender"],
+            "command": payload["command"],
+            "details": payload.get("details", ""),
+            "request_type": request_type,
+            "status": status,
+            "response": response,
+            "plan": self._real_chat_plan(request_type, risk_level),
+            "pipeline": self._pipeline(status, False),
+            "governance": {
+                "risk_level": risk_level,
+                "blocked_reason": blocked_reason,
+                "required_permissions": ["safe_mode=true", "provider=openrouter", "zero_write_policy"],
+                "provider_status": provider_status,
+                "approval_status": "not_required",
+            },
+            "timeline": [
+                self._event(now, "command.received", f"Command received from {payload['sender']}."),
+                self._event(now, "request.classified", f"Classified as {request_type} with {risk_level} risk."),
+                self._event(now, "provider.boundary_checked", "OpenRouter real chat path selected with safe-mode limits."),
+            ],
+            "execution_logs": [
+                self._log(now, "info", "Request accepted by real chat execution engine."),
+                self._log(now, "info" if success else "warning", response),
+            ],
+            "outputs": [],
+        }
+        for event in real_result.get("timeline", []):
+            record["timeline"].append(
+                self._event(str(event.get("timestamp", now)), f"real_ai.{event.get('event', 'event')}", str(event.get("detail", "")))
+            )
+        if success:
+            record["outputs"].append(self._real_chat_output(record, real_result, now))
+            record["timeline"].append(self._event(now, "chat.completed", "FORJA returned a real provider response to the original sender."))
+        else:
+            record["outputs"].append(self._blocked_output(record, response, now))
+            record["timeline"].append(self._event(now, "chat.blocked", response))
+        self._commands.update([], lambda records: records.append(record))
+        append_audit_event(
+            "creator.real_chat_completed" if success else "creator.real_chat_blocked",
+            payload["sender"],
+            {
+                "id": record["id"],
+                "status": status,
+                "provider_used": real_result.get("provider_used"),
+                "response_received": real_result.get("response_received"),
+                "external_request_executed": real_result.get("external_request_executed"),
+                "secrets_exposed": False,
+            },
+            risk=risk_level,
+        )
+        return self._normalize_record(record)
+
     def capability_audit_summary(self, limit: int = 100) -> dict:
         audit_events = [event for event in read_audit_events(limit) if str(event.get("event_type", "")).startswith("creator.capability")]
         risk_counts = Counter(str(event.get("risk", "low")) for event in audit_events)
@@ -781,6 +867,13 @@ class CreatorService:
             return False
         return any(marker in text for marker in ["use ai", "provider", "openai", "external ai", "llm"])
 
+    def _should_use_real_chat(self, payload: dict) -> bool:
+        return not self._external_ai_opted_out(payload)
+
+    def _external_ai_opted_out(self, payload: dict) -> bool:
+        text = f"{payload.get('command', '')} {payload.get('details', '')}".lower()
+        return any(marker in text for marker in ["no external ai", "no provider", "do not call external ai", "without provider"])
+
     def _plan(self, request_type: str, risk_level: str) -> list[str]:
         return [
             f"classify_request_type:{request_type}",
@@ -789,6 +882,17 @@ class CreatorService:
             "execute_metadata_only",
             "record_audit_trace",
             "register_artifacts",
+            "reply_to_original_sender",
+        ]
+
+    def _real_chat_plan(self, request_type: str, risk_level: str) -> list[str]:
+        return [
+            f"classify_request_type:{request_type}",
+            f"classify_risk:{risk_level}",
+            "validate_openrouter_connector",
+            "execute_real_chat_safe_mode",
+            "record_audit_trace",
+            "register_response_metadata",
             "reply_to_original_sender",
         ]
 
@@ -839,6 +943,33 @@ class CreatorService:
                 "pipeline_status": status,
                 "timeline_events": [event["event"] for event in record.get("timeline", [])],
                 "execution_policy": self._execution_policy(),
+            },
+            created_at=created_at,
+        )
+
+    def _real_chat_output(self, record: dict, real_result: dict, created_at: str) -> dict:
+        return self._make_output(
+            record,
+            output_type="execution_summary",
+            kind="summary",
+            name="real_chat_response",
+            title="Real Chat Response",
+            status="completed",
+            summary=f"real_chat_response: {record['response']}",
+            produced=["openrouter_response", "audit_trace", "response_metadata"],
+            not_produced=["source_code", "deployment", "secret_material", "autonomous_write"],
+            blocked=["autonomous_write", "cloud_deploy", "secret_exposure"],
+            content={
+                "request": self._request_payload(record),
+                "provider_used": real_result.get("provider_used"),
+                "model_used": real_result.get("model_used"),
+                "execution_id": real_result.get("execution_id"),
+                "response_received": real_result.get("response_received"),
+                "external_request_executed": real_result.get("external_request_executed"),
+                "fallback_triggered": real_result.get("fallback_triggered"),
+                "safe_mode": real_result.get("safe_mode"),
+                "logical_outputs": [output.get("logical_path") for output in real_result.get("outputs", []) if output.get("logical_path")],
+                "secrets_exposed": False,
             },
             created_at=created_at,
         )
@@ -936,6 +1067,27 @@ class CreatorService:
 
     def _not_produced(self) -> list[str]:
         return ["source_code", "deployable_app", "files_on_disk", "external_provider_response", "production_change"]
+
+    def _provider_state(self) -> str:
+        status = self._openrouter_connector_status()
+        if status.get("connector_state") == "ready":
+            return "openrouter_ready"
+        if status.get("connector_state") == "disabled":
+            return "openrouter_disabled"
+        if status.get("connector_state"):
+            return f"openrouter_{status['connector_state']}"
+        return "openrouter_unavailable"
+
+    def _openrouter_connector_status(self) -> dict:
+        try:
+            snapshot = provider_connector_layer.snapshot()
+        except Exception:
+            return {}
+        return next((provider for provider in snapshot.get("providers", []) if provider.get("provider_id") == REAL_CHAT_PROVIDER_ID), {})
+
+    def _real_chat_objective(self, payload: dict) -> str:
+        command = " ".join(str(payload.get("command", "")).split())
+        return f"Responde como FORJA en conversacion operativa breve y util. Mensaje del usuario: {command}"
 
     def _execution_policy(self) -> dict:
         return {

@@ -13,6 +13,28 @@ from app.services.creator_service import creator_service
 client = TestClient(app)
 
 
+class FakeCreatorChatEngine:
+    def __init__(self, text: str = "Hola, soy FORJA. Estoy operativo y listo para conversar.") -> None:
+        self.text = text
+        self.payloads: list[dict] = []
+
+    def execute(self, payload: dict) -> dict:
+        self.payloads.append(payload)
+        return {
+            "execution_id": "real-ai-test-chat",
+            "provider_used": "openrouter",
+            "model_used": "openrouter-test-model",
+            "execution_state": "completed",
+            "response_received": True,
+            "generated_text_preview": self.text,
+            "outputs": [{"logical_path": ".forja/workspaces/test/outputs/chat.generated.md"}],
+            "fallback_triggered": False,
+            "safe_mode": True,
+            "timeline": [{"timestamp": "2026-01-01T00:00:00+00:00", "event": "response.received", "detail": "Response received from openrouter."}],
+            "external_request_executed": True,
+        }
+
+
 def login() -> str:
     response = client.post("/auth/login", json={"username": settings.admin_username, "password": settings.admin_password})
     assert response.status_code == 200
@@ -87,7 +109,11 @@ def test_ai_pipeline_records_but_blocks_provider_execution() -> None:
     assert payload["provider_id"] == "ai.local-disabled"
 
 
-def test_creator_console_blocks_without_provider_execution() -> None:
+def test_creator_console_uses_openrouter_real_chat(monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-creator-console-real-chat-test")
+    fake_engine = FakeCreatorChatEngine()
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+
     response = client.post(
         "/creator/commands",
         json={"sender": "cerebro", "command": "Build a controlled operator module", "details": "Use external AI provider."},
@@ -96,13 +122,17 @@ def test_creator_console_blocks_without_provider_execution() -> None:
     payload = response.json()
     assert payload["sender"] == "cerebro"
     assert payload["reply_to_sender"] == "cerebro"
-    assert payload["status"] == "blocked"
-    assert payload["response"] == "blocked_provider_disabled"
-    assert payload["governance"]["provider_status"] == "disabled"
+    assert payload["status"] == "completed"
+    assert payload["response"] == "Hola, soy FORJA. Estoy operativo y listo para conversar."
+    assert payload["governance"]["provider_status"] == "active"
+    assert payload["governance"]["approval_status"] == "not_required"
+    assert payload["outputs"][0]["summary"].startswith("real_chat_response:")
+    assert fake_engine.payloads[0]["provider_id"] == "openrouter"
+    assert fake_engine.payloads[0]["safe_mode"] is True
 
     state = client.get("/creator/console")
     assert state.status_code == 200
-    assert state.json()["provider_state"] == "provider_disabled_by_governance"
+    assert state.json()["provider_state"] == "openrouter_ready"
 
 
 def test_creator_execution_requires_approval_then_completes_metadata_only() -> None:
