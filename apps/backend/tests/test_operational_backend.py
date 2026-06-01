@@ -171,6 +171,29 @@ def test_creator_console_uses_openrouter_real_chat(monkeypatch) -> None:
     assert state.json()["provider_state"] == "openrouter_ready"
 
 
+def test_api_chat_compatibility_uses_creator_console_real_chat(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine("FORJA responde por /api/chat sin fallback.")
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+
+    status = client.get("/api/chat")
+    assert status.status_code == 200
+    assert status.json()["reply"] != "AI_CHAT_NOT_CONFIGURED"
+
+    response = client.post(
+        "/api/chat",
+        json={"message": "Hola FORJA", "app": "FORJA", "context": "validacion compat chat"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["reply"] == "FORJA responde por /api/chat sin fallback."
+    assert payload["provider"] == "openrouter"
+    assert payload["command_id"]
+    assert payload["response_received"] is True
+    assert payload["secrets_exposed"] is False
+    assert fake_engine.payloads[0]["provider_id"] == "openrouter"
+
+
 def test_creator_console_injects_existing_ecosystem_memory(monkeypatch) -> None:
     fake_engine = FakeCreatorChatEngine("FORJA responde usando memoria real.")
     monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
