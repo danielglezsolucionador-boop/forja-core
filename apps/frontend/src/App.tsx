@@ -2065,7 +2065,7 @@ function TechnicalDashboard() {
   const [panel, setPanel] = useState<DetailPanel | null>(null);
   const [creatorSender, setCreatorSender] = useState<CreatorSender>("user");
   const [creatorCommand, setCreatorCommand] = useState("Prepare governed module");
-  const [creatorDetails, setCreatorDetails] = useState("Keep zero-write policy active. Metadata-only execution. No provider.");
+  const [creatorDetails, setCreatorDetails] = useState("Keep zero-write policy active. Safe-mode OpenRouter response enabled.");
   const [creatorBusy, setCreatorBusy] = useState(false);
   const [creatorMessage, setCreatorMessage] = useState<string | null>(null);
   const [selectedCreatorCommand, setSelectedCreatorCommand] = useState<CreatorCommand | null>(null);
