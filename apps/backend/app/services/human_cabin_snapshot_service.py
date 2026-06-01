@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.core.audit import read_audit_events, utc_now
 from app.services.creator_service import creator_service
 from app.services.ecosystem_memory_service import ecosystem_memory_service
+from app.services.local_agent_service import local_agent_service
 
 
 class HumanCabinSnapshotService:
@@ -11,13 +12,14 @@ class HumanCabinSnapshotService:
         commands = creator_service.list_commands(limit=30)
         outputs = creator_service.list_outputs(limit=30)
         audit_events = read_audit_events(40)
+        local_agent = local_agent_service.dashboard()
 
         active_apps = memory.get("active_apps") or memory.get("registered_apps", [])
         construction_queue = self._construction_queue(memory)
         blockers = self._blockers(memory)
-        approvals = self._approvals(commands)
-        deliveries = self._deliveries(outputs, memory)
-        activity = self._activity(commands, audit_events)
+        approvals = [*self._approvals(commands), *self._local_agent_approvals(local_agent)]
+        deliveries = [*self._deliveries(outputs, memory), *self._local_agent_deliveries(local_agent)]
+        activity = [*self._activity(commands, audit_events), *self._local_agent_activity(local_agent)]
         flow = self._flow(memory, construction_queue, approvals, blockers, deliveries)
 
         return {
@@ -31,6 +33,7 @@ class HumanCabinSnapshotService:
                 "active_apps": active_apps,
                 "apps_missing_from_primary_memory": memory.get("apps_missing_from_primary_memory", []),
             },
+            "localAgent": local_agent,
             "metrics": self._metrics(active_apps, construction_queue, approvals, blockers, deliveries, activity),
             "services": self._services(memory),
             "constructionQueue": construction_queue,
@@ -237,6 +240,56 @@ class HumanCabinSnapshotService:
                 }
             )
         return activity[:16]
+
+    def _local_agent_approvals(self, dashboard: dict) -> list[dict]:
+        approvals: list[dict] = []
+        for task in dashboard.get("critical_approvals", []):
+            approvals.append(
+                {
+                    "id": task.get("task_id"),
+                    "title": task.get("title"),
+                    "impact": f"Local Agent action requires critical approval: {task.get('task_type')}",
+                    "requiredDecision": "aprobar accion critica o cancelar tarea",
+                    "risk": task.get("risk_level", "critical"),
+                    "status": "PENDING",
+                }
+            )
+        for task in dashboard.get("latest_results", []):
+            if task.get("status") == "awaiting_human_approval":
+                approvals.append(
+                    {
+                        "id": task.get("task_id"),
+                        "title": task.get("title"),
+                        "impact": "Tarea local espera aprobacion humana.",
+                        "requiredDecision": "aprobar, rechazar o mantener en espera",
+                        "risk": task.get("risk_level", "high"),
+                        "status": "PENDING",
+                    }
+                )
+        return approvals[-8:]
+
+    def _local_agent_deliveries(self, dashboard: dict) -> list[dict]:
+        deliveries: list[dict] = []
+        for delivery in dashboard.get("deliveries", []):
+            deliveries.append(
+                {
+                    "name": f"Local Agent: {delivery.get('name')}",
+                    "path": delivery.get("path") or delivery.get("task_id"),
+                    "status": delivery.get("status", "COMPLETED"),
+                }
+            )
+        return deliveries[-8:]
+
+    def _local_agent_activity(self, dashboard: dict) -> list[dict]:
+        return [
+            {
+                "time": item.get("time", ""),
+                "event": item.get("event", "local_agent.event"),
+                "app": "LOCAL_AGENT",
+                "result": item.get("result", ""),
+            }
+            for item in dashboard.get("recent_activity", [])[-8:]
+        ]
 
     def _flow(self, memory: dict, construction_queue: list[dict], approvals: list[dict], blockers: list[dict], deliveries: list[dict]) -> list[dict]:
         active_apps = memory.get("active_apps", [])
