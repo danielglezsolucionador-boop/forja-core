@@ -29,12 +29,26 @@ SECRET_PATTERNS = [
 ]
 EXCLUDED_DIRS = {".git", "node_modules", "build", "dist", "__pycache__", ".pytest_cache"}
 EXCLUDED_FILES = {".env"}
+SAFE_SECRET_METADATA_KEYS = {"secrets_scanned", "secrets_redacted", "excluded"}
+BOOLEAN_SECRET_RESULT_KEYS = {"secrets_found", "secrets_exposed"}
 
 
 class SecretScanner:
     def contains_secret(self, value: Any) -> bool:
         if isinstance(value, dict):
-            return any(self.contains_secret(key) or self.contains_secret(nested) for key, nested in value.items())
+            for key, nested in value.items():
+                key_text = str(key).lower()
+                if key_text in BOOLEAN_SECRET_RESULT_KEYS:
+                    if nested is True:
+                        return True
+                    continue
+                if key_text in SAFE_SECRET_METADATA_KEYS:
+                    continue
+                if any(pattern.search(key_text) for pattern in SECRET_PATTERNS) and nested not in {False, None, "", "redacted"}:
+                    return True
+                if self.contains_secret(nested):
+                    return True
+            return False
         if isinstance(value, list):
             return any(self.contains_secret(item) for item in value)
         text = str(value)
