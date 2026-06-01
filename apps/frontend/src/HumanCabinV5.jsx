@@ -48,6 +48,13 @@ function normalizedStatus(status) {
   return String(status || "UNKNOWN").toUpperCase();
 }
 
+function chatStatusLabel(status) {
+  const value = normalizedStatus(status);
+  if (value === "NOT_CONFIGURED") return "OPENROUTER CHECK";
+  if (value === "MISSING_CREDENTIALS") return "OPENROUTER CHECK";
+  return value;
+}
+
 function toneForStatus(status) {
   const value = normalizedStatus(status);
   if (["OPERATIONAL", "READY", "OK", "COMPLETED"].includes(value)) return "good";
@@ -439,7 +446,7 @@ function ChatForja({ snapshot, lines }) {
     fetch(apiUrl("/api/chat"), { headers: { Accept: "application/json" } })
       .then((response) => response.json())
       .then((data) => {
-        if (alive) setChatStatus(data.status || data.provider_state || data.mode || "UNKNOWN");
+        if (alive) setChatStatus(data.status === "ok" ? "ok" : data.provider_state || data.status || data.mode || "UNKNOWN");
       })
       .catch(() => {
         if (alive) setChatStatus("error");
@@ -556,7 +563,7 @@ function ChatForja({ snapshot, lines }) {
           <span>FORJA habla</span>
           <strong>Directora de construccion del ecosistema</strong>
         </div>
-        <small>{chatStatus === "not_configured" ? "AI CHAT OFF" : normalizedStatus(chatStatus)}</small>
+        <small>{chatStatusLabel(chatStatus)}</small>
       </div>
       <div className="director-feed">
         {lines.slice(0, 3).map((line) => (

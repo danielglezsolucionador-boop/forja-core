@@ -226,3 +226,30 @@ def test_openrouter_transport_uses_openrouter_endpoint_and_headers(monkeypatch) 
     assert captured["headers"]["X-OpenRouter-Title"] == "FORJA Operational Core"
     assert result["model"] == "deepseek/deepseek-chat"
     assert result["text"] == "OpenRouter response."
+
+
+def test_openrouter_transport_uses_forja_key_alias(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("FORJA_OPENROUTER_API_KEY", "sk-or-v1-openrouter-http-transport-test")
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "model": "deepseek/deepseek-chat",
+                "choices": [{"message": {"content": "OpenRouter alias response."}}],
+                "usage": {"total_tokens": 15},
+            }
+
+    def fake_post(url: str, *, headers: dict, json: dict, timeout: int) -> Response:
+        captured.update({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return Response()
+
+    monkeypatch.setattr("app.services.real_provider_execution_service.httpx.post", fake_post)
+    result = HTTPRealProviderTransport().execute("openrouter", "short governed prompt", 128, 7)
+    assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
+    assert captured["headers"]["Authorization"].startswith("Bearer ")
+    assert result["text"] == "OpenRouter alias response."

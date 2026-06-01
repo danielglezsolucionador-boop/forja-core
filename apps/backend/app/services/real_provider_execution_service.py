@@ -58,6 +58,14 @@ PROVIDER_COST_RATE = {"openrouter": 0.00065, "deepseek": 0.00014, "qwen": 0.0001
 WORKSPACE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,79}$")
 
 
+def _env_first(*names: str) -> str:
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
 class RealProviderTransportError(RuntimeError):
     def __init__(self, reason: str, failure_mode: str = "provider_failure_detected") -> None:
         super().__init__(reason)
@@ -125,7 +133,7 @@ class HTTPRealProviderTransport:
             }
         if provider_id == "openrouter":
             return {
-                "api_key": os.environ.get("OPENROUTER_API_KEY", "").strip(),
+                "api_key": _env_first("OPENROUTER_API_KEY", "FORJA_OPENROUTER_API_KEY"),
                 "base_url": os.environ.get("FORJA_OPENROUTER_BASE_URL", os.environ.get("OPENROUTER_API_BASE", "https://openrouter.ai/api/v1")),
                 "model": os.environ.get("FORJA_OPENROUTER_MODEL", os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-chat")),
                 "headers": {

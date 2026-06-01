@@ -46,6 +46,17 @@ def test_provider_configured_with_safe_credential(monkeypatch) -> None:
     assert provider["secrets_exposed"] is False
 
 
+def test_openrouter_accepts_forja_prefixed_key_alias(monkeypatch) -> None:
+    _clear_keys(monkeypatch)
+    _enable("openrouter")
+    monkeypatch.setenv("FORJA_OPENROUTER_API_KEY", "sk-or-v1-test-provider-connector-key")
+    snapshot = _status()
+    provider = _provider(snapshot, "openrouter")
+    assert provider["credential_state"] == "configured"
+    assert provider["connector_state"] == "ready"
+    assert provider["secrets_exposed"] is False
+
+
 def test_provider_missing_credentials(monkeypatch) -> None:
     _clear_keys(monkeypatch)
     _enable("anthropic")

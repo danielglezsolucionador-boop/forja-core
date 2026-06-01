@@ -32,6 +32,14 @@ def _openrouter_state() -> str:
     openrouter = next((provider for provider in snapshot.get("providers", []) if provider.get("provider_id") == "openrouter"), None)
     if not openrouter:
         return "unavailable"
+    if openrouter.get("connector_state") == "disabled":
+        try:
+            snapshot = provider_connector_layer.enable_provider("openrouter")
+            openrouter = next((provider for provider in snapshot.get("providers", []) if provider.get("provider_id") == "openrouter"), None)
+        except Exception:
+            return "disabled"
+        if not openrouter:
+            return "unavailable"
     if openrouter.get("connector_state") == "ready":
         return "ready"
     return str(openrouter.get("connector_state") or "unavailable")
@@ -40,10 +48,14 @@ def _openrouter_state() -> str:
 @router.get("")
 def chat_status() -> dict:
     state = _openrouter_state()
+    ready = state == "ready"
     return {
-        "reply": "OPENROUTER_CONFIGURED" if state == "ready" else f"OPENROUTER_{state.upper()}",
-        "status": "ok" if state == "ready" else "not_configured",
+        "reply": "OPENROUTER_CONFIGURED" if ready else f"OPENROUTER_{state.upper()}",
+        "status": "ok" if ready else "degraded",
         "provider": "openrouter",
+        "provider_state": state,
+        "configured": ready,
+        "error_code": None if ready else f"OPENROUTER_{state.upper()}",
     }
 
 
@@ -106,6 +118,7 @@ def chat(payload: ChatRequest) -> dict:
     if payload.app.upper() != "FORJA":
         return {"reply": "Este endpoint solo responde por FORJA.", "status": "error", "provider": "validation"}
 
+    _openrouter_state()
     command = message[:240]
     details = payload.context
     if len(message) > 240:
