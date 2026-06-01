@@ -326,7 +326,7 @@ def sha256_file(path: Path) -> str:
 
 
 def load_config(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def main() -> None:
