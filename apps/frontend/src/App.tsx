@@ -90,6 +90,12 @@ function display(value: unknown, fallback = "Not reported") {
   return String(value);
 }
 
+function previewText(value: unknown, maxLength = 180) {
+  const text = display(value, "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 3).trim()}...`;
+}
+
 function contentList(content: Record<string, unknown>, key: string): string[] {
   const value = content[key];
   if (!Array.isArray(value)) return [];
@@ -357,7 +363,7 @@ function CreatorConsole({
               <button key={item.id} type="button" onClick={() => onSelect(item)} className={active?.id === item.id ? "active" : ""}>
                 <strong>sender={item.sender}</strong>
                 <span>{item.command}</span>
-                <small>{item.response}</small>
+                <small title={item.response}>{previewText(item.response)}</small>
               </button>
             )) : <p>No creator commands yet.</p>}
           </div>
@@ -2238,7 +2244,7 @@ function TechnicalDashboard() {
       .then((record) => {
         setSelectedCreatorCommand(record);
         selectLatestOutput(record);
-        setCreatorMessage(`FORJA replied to sender=${record.reply_to_sender}: ${record.response}`);
+        setCreatorMessage(`FORJA replied to sender=${record.reply_to_sender}. Status: ${record.status}.`);
         setCreatorRefreshKey((key) => key + 1);
       })
       .catch((error: Error) => setCreatorMessage(error.message))
@@ -2270,7 +2276,7 @@ function TechnicalDashboard() {
       .then((record) => {
         setSelectedCreatorCommand(record);
         selectLatestOutput(record);
-        setCreatorMessage(`Execution engine replied to sender=${record.reply_to_sender}: ${record.response}`);
+        setCreatorMessage(`Execution engine replied to sender=${record.reply_to_sender}. Status: ${record.status}.`);
         setCreatorRefreshKey((key) => key + 1);
       })
       .catch((error: Error) => setCreatorMessage(error.message))

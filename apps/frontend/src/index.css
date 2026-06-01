@@ -169,6 +169,11 @@ a {
   color: #f6c56d;
   font-weight: 800;
   line-height: 1.45;
+  display: -webkit-box;
+  max-height: 64px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .pipeline-rail {
@@ -238,6 +243,8 @@ a {
 }
 
 .channel-list button {
+  min-height: 112px;
+  max-height: 142px;
   text-align: left;
   border: 1px solid rgba(255, 255, 255, 0.075);
   border-radius: 18px;
@@ -245,6 +252,7 @@ a {
   background: rgba(255, 255, 255, 0.035);
   color: #f7eadb;
   cursor: pointer;
+  overflow: hidden;
 }
 
 .channel-list button.active {
@@ -256,6 +264,21 @@ a {
 .channel-list small {
   display: block;
   overflow-wrap: anywhere;
+}
+
+.channel-list span,
+.channel-list small {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+}
+
+.channel-list span {
+  -webkit-line-clamp: 2;
+}
+
+.channel-list small {
+  -webkit-line-clamp: 3;
 }
 
 .permission-list {
