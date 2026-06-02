@@ -132,7 +132,43 @@ Implemented:
 
 ## Production Validation
 
-Pending until commit, push, and Render deploy complete.
+- Commit deployed: `743b658`
+- Frontend URL: `https://forja-frontend.onrender.com`
+- Backend URL: `https://forja-core.onrender.com`
+- Backend health: PASS
+- `/api/chat` mode: `natural_execution_layer`
+- OpenRouter provider state: `ready`
+- Frontend bundle contains voice and chat persistence code: PASS
+- Human Cabin V5 visible in production: PASS
+- `FORJA Command Console` absent from main screen: PASS
+- `Voz` button visible: PASS
+- Browser console errors: PASS, zero errors
+- UI reload reads persisted Human Cabin history: PASS
+
+Production prompts:
+
+- `Hola FORJA`: PASS, intent `saludo`, Spanish director response
+- `Quiero hacer una app que se llame Auditoría. ¿Qué necesitas para hacerla?`: PASS, intent `crear_app`, `AUDITORÍA` preserved
+- Voice transcription path with `input_mode=voice`: PASS, intent `crear_app`
+- `Resume el ecosistema.`: PASS, intent `revisar_ecosistema`, memory data returned
+- `Genera un inventario de aplicaciones del ecosistema y guárdalo como ECOSYSTEM_APPS_REPORT.md`: PASS, Local Agent task created
+- `Donde quedo el archivo?`: PASS, exact delivery path returned
+
+Production Local Agent E2E:
+
+- Agent registered: PASS
+- Heartbeat: PASS, status `active`
+- Polling: PASS
+- Task ID: `task-5e6c573f-9733-4235-bb8b-8be47ca9fc7e`
+- Task status: `completed`
+- Snapshot: PASS
+- Backup: PASS
+- Rollback record: PASS
+- Artifact upload: PASS
+- Result visible in dashboard: PASS
+- Delivery visible in dashboard: PASS
+- File generated locally by production task: `D:\ECOSYSTEM\DELIVERIES\FORJA\ECOSYSTEM_APPS_REPORT.md`
+- Browser used for validation does not expose Web Speech API; fallback is implemented and the backend voice transcription path was validated with `input_mode=voice`.
 
 ## Status
 
@@ -140,9 +176,9 @@ Pending until commit, push, and Render deploy complete.
 - FORJA understands natural text: SI
 - FORJA supports voice input path: SI
 - FORJA creates Local Agent tasks from chat: SI
-- Local Agent executes from chat locally: SI
-- File generated locally: SI
+- Local Agent executes from chat in production: SI
+- File generated: SI
 - Conversation persists: SI
 - CEO delivery path defined: SI
-- Human Cabin V5 intact locally: SI
-- Production operative: Pending deploy validation
+- Human Cabin V5 intact: SI
+- Production operative: SI
