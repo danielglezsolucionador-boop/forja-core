@@ -355,6 +355,7 @@ class NaturalExecutionService:
         if not match:
             return None
         raw = match.group(1).strip().strip(" .'\"")
+        raw = re.split(r"[.?!¡¿,\n\r]", raw, maxsplit=1)[0]
         raw = re.split(r"\s+(?:para|que|y|con|donde|cuando)\s+", raw, maxsplit=1, flags=re.IGNORECASE)[0]
         raw = raw.strip().strip(" .'\"")
         return raw[:80] if raw else None

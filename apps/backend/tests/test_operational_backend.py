@@ -232,7 +232,7 @@ def test_api_chat_understands_create_app_intent_and_persists_history(monkeypatch
     response = client.post(
         "/api/chat",
         json={
-            "message": "Quiero hacer una app que se llame Auditoria. Que necesitas para hacerla?",
+            "message": "Quiero hacer una app que se llame Auditoría. ¿Qué necesitas para hacerla?",
             "app": "FORJA",
             "session_id": session_id,
             "context": "human cabin natural intent",
@@ -243,15 +243,15 @@ def test_api_chat_understands_create_app_intent_and_persists_history(monkeypatch
     assert payload["intent"]["name"] == "crear_app"
     assert payload["intent"]["requires_local_agent"] is True
     assert payload["intent"]["requires_confirmation"] is True
-    assert "Para construir AUDITORIA necesito definir 5 cosas" in payload["reply"]
+    assert "Para construir AUDITORÍA necesito definir 5 cosas" in payload["reply"]
     assert "Enviar al Local Agent" in payload["reply"]
     assert payload["local_agent_task"] is None
 
     history = client.get("/api/chat/history", params={"session_id": session_id})
     assert history.status_code == 200
     messages = history.json()["messages"]
-    assert any(message["role"] == "user" and "Auditoria" in message["text"] for message in messages)
-    assert any(message["role"] == "forja" and "AUDITORIA" in message["text"] for message in messages)
+    assert any(message["role"] == "user" and "Auditoría" in message["text"] for message in messages)
+    assert any(message["role"] == "forja" and "AUDITORÍA" in message["text"] for message in messages)
 
 
 def test_api_chat_reports_last_delivery_path(monkeypatch) -> None:
