@@ -40,8 +40,34 @@ const promptExamples = [
   "Que sigue?",
 ];
 
+const CHAT_SESSION_ID = "ceo-human-cabin";
+const CHAT_STORAGE_KEY = "forja_human_cabin_chat_v1";
+const DEFAULT_CHAT_MESSAGES = [
+  { role: "forja", text: "CEO, aqui FORJA. Estoy lista para ordenar la obra, leer memoria real y enviar trabajo al Local Agent." },
+];
+
 function delay(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function loadStoredChatMessages() {
+  if (typeof window === "undefined") return DEFAULT_CHAT_MESSAGES;
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(CHAT_STORAGE_KEY) || "[]");
+    if (Array.isArray(stored) && stored.length) return stored.slice(-60);
+  } catch {
+    return DEFAULT_CHAT_MESSAGES;
+  }
+  return DEFAULT_CHAT_MESSAGES;
+}
+
+function historyMessages(payload) {
+  const messages = payload?.messages;
+  if (!Array.isArray(messages) || !messages.length) return [];
+  return messages
+    .filter((message) => message?.text && ["user", "forja"].includes(message.role))
+    .map((message) => ({ role: message.role, text: message.text }))
+    .slice(-60);
 }
 
 function normalizedStatus(status) {
@@ -437,9 +463,13 @@ function ChatForja({ snapshot, lines }) {
   const [input, setInput] = useState("");
   const [chatStatus, setChatStatus] = useState("UNKNOWN");
   const [sending, setSending] = useState(false);
-  const [messages, setMessages] = useState([
-    { role: "forja", text: "CEO, estoy despierta. Mi chat usa OpenRouter solo desde backend y solo si la variable segura existe." },
-  ]);
+  const [listening, setListening] = useState(false);
+  const [messages, setMessages] = useState(loadStoredChatMessages);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages.slice(-60)));
+  }, [messages]);
 
   useEffect(() => {
     let alive = true;
@@ -451,6 +481,16 @@ function ChatForja({ snapshot, lines }) {
       .catch(() => {
         if (alive) setChatStatus("error");
       });
+
+    fetch(apiUrl(`/api/chat/history?session_id=${CHAT_SESSION_ID}`), { headers: { Accept: "application/json" } })
+      .then((response) => response.json())
+      .then((data) => {
+        const serverMessages = historyMessages(data);
+        if (alive && serverMessages.length) {
+          setMessages((current) => (serverMessages.length > current.length ? serverMessages : current));
+        }
+      })
+      .catch(() => {});
 
     return () => {
       alive = false;
@@ -491,16 +531,19 @@ function ChatForja({ snapshot, lines }) {
         const response = await fetch(apiUrl(`/local-agent/tasks/${taskId}`), {
           headers: { Accept: "application/json" },
         });
-        if (!response.ok) continue;
-        const task = await response.json();
-        if (["completed", "failed", "blocked", "cancelled", "rolled_back"].includes(task.status)) {
-          const artifactNames = (task.artifacts || []).map((artifact) => artifact.name).filter(Boolean).join(", ");
+      if (!response.ok) continue;
+      const task = await response.json();
+      if (["completed", "failed", "blocked", "cancelled", "rolled_back"].includes(task.status)) {
+          const artifactPaths = (task.artifacts || [])
+            .map((artifact) => artifact.local_path || artifact.name)
+            .filter(Boolean)
+            .join(", ");
           const result = task.result?.human_cabin_summary || task.result?.summary || `Tarea ${task.status}.`;
           setMessages((current) => [
             ...current,
             {
               role: "forja",
-              text: `Local Agent ${task.status}: ${result}${artifactNames ? ` Entregable: ${artifactNames}.` : ""}`,
+              text: `Local Agent ${task.status}: ${result}${artifactPaths ? ` Entregable: ${artifactPaths}.` : ""}`,
             },
           ]);
           return;
@@ -511,7 +554,7 @@ function ChatForja({ snapshot, lines }) {
     }
   }
 
-  async function submitPrompt(prompt) {
+  async function submitPrompt(prompt, inputMode = "text") {
     const cleanPrompt = prompt.trim();
     if (!cleanPrompt) return;
     setMessages((current) => [...current, { role: "user", text: cleanPrompt }]);
@@ -527,6 +570,8 @@ function ChatForja({ snapshot, lines }) {
         body: JSON.stringify({
           message: cleanPrompt,
           app: "FORJA",
+          session_id: CHAT_SESSION_ID,
+          input_mode: inputMode,
           context: contextPayload(),
         }),
       });
@@ -534,7 +579,7 @@ function ChatForja({ snapshot, lines }) {
       if (!response.ok) {
         throw new Error(replyFromPayload(data));
       }
-      setChatStatus(data.provider || data.status || "UNKNOWN");
+      setChatStatus(data.status === "ok" ? "ok" : data.provider_state || data.status || "UNKNOWN");
       setMessages((current) => [
         ...current,
         { role: "forja", text: replyFromPayload(data) },
@@ -551,6 +596,35 @@ function ChatForja({ snapshot, lines }) {
     } finally {
       setSending(false);
     }
+  }
+
+  function startVoiceInput() {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+      setMessages((current) => [
+        ...current,
+        { role: "forja", text: "Voz no disponible en este navegador. Escribe el mensaje." },
+      ]);
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.lang = "es-ES";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onstart = () => setListening(true);
+    recognition.onend = () => setListening(false);
+    recognition.onerror = () => {
+      setListening(false);
+      setMessages((current) => [
+        ...current,
+        { role: "forja", text: "No pude tomar audio ahora. Escribe el mensaje y sigo por texto." },
+      ]);
+    };
+    recognition.onresult = (event) => {
+      const transcript = event.results?.[0]?.[0]?.transcript || "";
+      if (transcript.trim()) submitPrompt(transcript, "voice");
+    };
+    recognition.start();
   }
 
   return (
@@ -592,7 +666,17 @@ function ChatForja({ snapshot, lines }) {
         }}
       >
         <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Pregunta a FORJA" />
-          <button type="submit" disabled={!input.trim() || sending}>{sending ? "..." : "Enviar"}</button>
+        <button
+          type="button"
+          className="voice-button"
+          onClick={startVoiceInput}
+          disabled={sending || listening}
+          title="Dictar mensaje a FORJA"
+          aria-label="Dictar mensaje a FORJA"
+        >
+          {listening ? "..." : "Voz"}
+        </button>
+        <button type="submit" disabled={!input.trim() || sending}>{sending ? "..." : "Enviar"}</button>
       </form>
     </section>
   );

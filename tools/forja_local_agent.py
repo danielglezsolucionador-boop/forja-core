@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -31,6 +32,7 @@ EXCLUDED_DIRS = {".git", "node_modules", "build", "dist", "__pycache__", ".pytes
 EXCLUDED_FILES = {".env"}
 SAFE_SECRET_METADATA_KEYS = {"secrets_scanned", "secrets_redacted", "excluded"}
 BOOLEAN_SECRET_RESULT_KEYS = {"secrets_found", "secrets_exposed"}
+DEFAULT_DELIVERIES_ROOT = Path(os.getenv("FORJA_DELIVERIES_ROOT", r"D:\ECOSYSTEM\DELIVERIES"))
 
 
 class SecretScanner:
@@ -156,9 +158,10 @@ class BackupEngine:
 
 
 class ReportsAdapter:
-    def __init__(self, run_root: Path, repo_adapter: RepositoryAdapter) -> None:
+    def __init__(self, run_root: Path, repo_adapter: RepositoryAdapter, deliveries_root: Path | None = None) -> None:
         self.run_root = run_root
         self.repo_adapter = repo_adapter
+        self.deliveries_root = deliveries_root or DEFAULT_DELIVERIES_ROOT
 
     def write_report(self, task: dict, summary: str, command_logs: list[dict]) -> dict:
         report_dir = self.run_root / task["task_id"] / "reports"
@@ -195,8 +198,8 @@ class ReportsAdapter:
             return None
         repo_id = ((task.get("target") or {}).get("repo_ids") or ["forja"])[0]
         repo = self.repo_adapter.resolve(repo_id)
-        target = (repo / filename).resolve()
-        ensure_inside(repo, target)
+        target = delivery_path_for_task(task, filename, self.deliveries_root)
+        target.parent.mkdir(parents=True, exist_ok=True)
         apps = discover_ecosystem_apps(repo)
         body = [
             "# Ecosystem Apps Report",
@@ -236,6 +239,8 @@ class ReportsAdapter:
             "kind": "report",
             "name": filename,
             "local_path": str(target),
+            "delivery_owner": "CEO",
+            "delivery_app": delivery_app_for_task(task),
             "sha256": sha256_file(target),
             "size_bytes": target.stat().st_size,
             "uploaded": False,
@@ -272,13 +277,13 @@ class ForjaAgentClient:
 
 
 class PollingAgent:
-    def __init__(self, client: ForjaAgentClient, repositories: dict[str, Path], run_root: Path) -> None:
+    def __init__(self, client: ForjaAgentClient, repositories: dict[str, Path], run_root: Path, deliveries_root: Path | None = None) -> None:
         self.client = client
         self.repo_adapter = RepositoryAdapter(repositories)
         self.memory_adapter = MemoryAdapter(self.repo_adapter)
         self.snapshot_engine = SnapshotEngine(self.repo_adapter, self.memory_adapter)
         self.backup_engine = BackupEngine(self.repo_adapter, run_root)
-        self.reports = ReportsAdapter(run_root, self.repo_adapter)
+        self.reports = ReportsAdapter(run_root, self.repo_adapter, deliveries_root)
         self.uploader = ResultUploader(client)
         self.scanner = SecretScanner()
 
@@ -341,13 +346,14 @@ class PollingAgent:
         artifact = self.reports.write_report(task, "Local Agent task completed with governed execution.", command_logs)
         self.client.post(f"/agent/v1/tasks/{task['task_id']}/artifacts", {"artifact": artifact})
         generated_files = [requested_artifact["name"]] if requested_artifact else []
+        generated_paths = [requested_artifact["local_path"]] if requested_artifact else []
         return self.uploader.upload(
             task,
             {
                 "status": "completed",
                 "summary": "Local Agent completed the governed task.",
                 "human_cabin_summary": (
-                    f"FORJA Local Agent genero {', '.join(generated_files)} con snapshot, backup, rollback y resultado."
+                    f"FORJA Local Agent genero {', '.join(generated_files)} en {', '.join(generated_paths)} con snapshot, backup, rollback y resultado."
                     if generated_files
                     else "FORJA Local Agent completo la tarea con snapshot, logs y resultado."
                 ),
@@ -355,6 +361,7 @@ class PollingAgent:
                     "commands_run": len(command_logs),
                     "commands_failed": sum(1 for log in command_logs if log["exit_code"] != 0),
                     "generated_files": generated_files,
+                    "generated_paths": generated_paths,
                 },
                 "secrets_exposed": False,
             },
@@ -400,6 +407,35 @@ def ensure_inside(base: Path, target: Path) -> None:
         raise RuntimeError("path_outside_repository_blocked")
 
 
+def ensure_inside_delivery(base: Path, target: Path) -> None:
+    resolved_base = base.resolve()
+    resolved_target = target.resolve()
+    if resolved_base != resolved_target and resolved_base not in resolved_target.parents:
+        raise RuntimeError("path_outside_delivery_root_blocked")
+
+
+def delivery_app_for_task(task: dict) -> str:
+    target = task.get("target") or {}
+    return safe_delivery_name(str(target.get("delivery_app") or "FORJA"))
+
+
+def delivery_path_for_task(task: dict, filename: str, default_root: Path) -> Path:
+    target = task.get("target") or {}
+    root = Path(str(target.get("delivery_root") or default_root))
+    requested = target.get("delivery_path")
+    if requested:
+        path = Path(str(requested))
+    else:
+        path = root / delivery_app_for_task(task) / Path(filename).name
+    ensure_inside_delivery(root, path)
+    return path
+
+
+def safe_delivery_name(value: str) -> str:
+    clean = re.sub(r"[^A-Za-z0-9_-]+", "_", value.upper()).strip("_")
+    return clean or "FORJA"
+
+
 def requested_markdown_filename(task: dict) -> str | None:
     desired = str(task.get("desired_output") or "").strip()
     instruction = str(task.get("instruction") or "")
@@ -437,7 +473,12 @@ def main() -> None:
     config = load_config(Path(args.config))
     repositories = {item["id"]: Path(item["path"]) for item in config.get("repositories", [])}
     client = ForjaAgentClient(config["base_url"], config["agent_id"], config["agent_token"])
-    agent = PollingAgent(client, repositories, Path(config.get("run_root", "D:/ECOSYSTEM/FORJA_LOCAL_AGENT/runs")))
+    agent = PollingAgent(
+        client,
+        repositories,
+        Path(config.get("run_root", "D:/ECOSYSTEM/FORJA_LOCAL_AGENT/runs")),
+        Path(config.get("deliveries_root", str(DEFAULT_DELIVERIES_ROOT))),
+    )
     while True:
         agent.poll_once()
         if args.once:

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import re
-
-from pydantic import BaseModel, Field
 from fastapi import APIRouter
+from pydantic import BaseModel, Field
 
-from app.services.local_agent_service import local_agent_service
 from app.services.creator_service import creator_service
+from app.services.natural_execution_service import DEFAULT_SESSION_ID, natural_execution_service
 from app.services.provider_connector_service import provider_connector_layer
 
 
@@ -17,11 +15,8 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     app: str = Field(default="FORJA", max_length=80)
     context: str = Field(default="", max_length=12000)
-
-
-REPORT_FILE_RE = re.compile(r"\b([A-Za-z0-9][A-Za-z0-9_.-]{0,120}\.md)\b", re.IGNORECASE)
-REPORT_INTENT_MARKERS = ("guarda", "guardar", "guardalo", "guárdalo", "archivo", "inventario", "reporte", "report")
-REPORT_ACTION_MARKERS = ("genera", "generar", "crea", "crear", "produce", "prepara", "haz")
+    session_id: str = Field(default=DEFAULT_SESSION_ID, max_length=120)
+    input_mode: str = Field(default="text", max_length=20)
 
 
 def _openrouter_state() -> str:
@@ -55,59 +50,15 @@ def chat_status() -> dict:
         "provider": "openrouter",
         "provider_state": state,
         "configured": ready,
+        "mode": "natural_execution_layer",
+        "conversation_persistence": True,
         "error_code": None if ready else f"OPENROUTER_{state.upper()}",
     }
 
 
-def _should_create_local_agent_report(message: str) -> bool:
-    normalized = " ".join(message.lower().split())
-    return bool(REPORT_FILE_RE.search(message)) and any(marker in normalized for marker in REPORT_INTENT_MARKERS + REPORT_ACTION_MARKERS)
-
-
-def _report_filename(message: str) -> str:
-    match = REPORT_FILE_RE.search(message)
-    if not match:
-        return "FORJA_LOCAL_AGENT_REPORT.md"
-    return match.group(1).replace("\\", "").replace("/", "")
-
-
-def _create_local_agent_task(message: str) -> dict | None:
-    if not _should_create_local_agent_report(message):
-        return None
-    filename = _report_filename(message)
-    task = local_agent_service.create_task(
-        {
-            "instruction": (
-                f"Generar reporte de inventario de aplicaciones del ecosistema y guardarlo como {filename}. "
-                "Usar memoria real de docs/ecosystem-memory. "
-                f"Solicitud original desde Human Cabin: {message}"
-            ),
-            "title": f"Generar {filename}",
-            "requested_by": "ceo",
-            "source": "human_cabin_chat",
-            "priority": "high",
-            "target": {"workspace_id": "ecosystem", "repo_ids": ["forja"], "paths": [filename, "docs/ecosystem-memory"]},
-            "desired_output": filename,
-        }
-    )
-    if task.get("status") == "awaiting_human_approval" and not task.get("policy", {}).get("requires_critical_approval"):
-        task = local_agent_service.approve_task(
-            task["task_id"],
-            {
-                "approved_by": "ceo",
-                "reason": "Aprobacion humana emitida desde Human Cabin chat para generar el reporte solicitado.",
-                "action": "report_generation",
-                "exact_target": {"filename": filename, "repo": "forja"},
-            },
-        )
-    return {
-        "task_id": task.get("task_id"),
-        "title": task.get("title"),
-        "status": task.get("status"),
-        "risk_level": task.get("risk_level"),
-        "task_type": task.get("task_type"),
-        "desired_output": filename,
-    }
+@router.get("/history")
+def chat_history(session_id: str = DEFAULT_SESSION_ID, limit: int = 60) -> dict:
+    return natural_execution_service.history(session_id=session_id, limit=limit)
 
 
 @router.post("")
@@ -118,28 +69,28 @@ def chat(payload: ChatRequest) -> dict:
     if payload.app.upper() != "FORJA":
         return {"reply": "Este endpoint solo responde por FORJA.", "status": "error", "provider": "validation"}
 
-    _openrouter_state()
+    provider_state = _openrouter_state()
     command = message[:240]
-    details = payload.context
+    details = (
+        "Responder siempre en espanol ejecutivo como Directora de Construccion. "
+        "No mostrar reporte tecnico crudo. Convertir lenguaje natural del CEO en intencion, tarea o estado. "
+        f"Contexto Human Cabin:\n{payload.context}"
+    )
     if len(message) > 240:
-        details = f"Mensaje completo: {message}\n\nContexto:\n{payload.context}".strip()
+        details = f"Mensaje completo: {message}\n\n{details}".strip()
 
-    record = creator_service.create_command({"sender": "user", "command": command, "details": details})
-    local_agent_task = _create_local_agent_task(message)
-    reply = record.get("response") or "FORJA recibio tu mensaje, pero no genero contenido conversacional."
-    if local_agent_task:
-        reply = (
-            f"{reply}\n\nLocal Agent: tarea {local_agent_task['task_id']} creada y "
-            f"{local_agent_task['status']} para generar {local_agent_task['desired_output']}."
-        )
-    return {
-        "reply": reply,
-        "status": "ok" if record.get("status") == "completed" else record.get("status", "unknown"),
-        "provider": "openrouter",
-        "command_id": record.get("id"),
-        "creator_status": record.get("status"),
-        "response_received": record.get("status") == "completed",
-        "local_agent_task": local_agent_task,
-        "fallback_triggered": False,
-        "secrets_exposed": False,
-    }
+    try:
+        record = creator_service.create_command({"sender": "user", "command": command, "details": details})
+    except Exception as exc:
+        record = {"id": None, "status": "degraded", "response": "", "error": exc.__class__.__name__}
+
+    result = natural_execution_service.handle_message(
+        message,
+        session_id=payload.session_id or DEFAULT_SESSION_ID,
+        input_mode=payload.input_mode or "text",
+        provider_state=provider_state,
+        openrouter_record=record,
+    )
+    result["command_id"] = record.get("id")
+    result["creator_status"] = record.get("status")
+    return result

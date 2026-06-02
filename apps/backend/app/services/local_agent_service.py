@@ -566,15 +566,31 @@ class LocalAgentService:
         deliveries: list[dict] = []
         for task in tasks:
             result = task.get("result") or {}
+            artifact = self._visible_artifact(task)
+            target = task.get("target") or {}
             deliveries.append(
                 {
-                    "name": result.get("report", {}).get("name") or task.get("title"),
-                    "path": result.get("report", {}).get("name") or task.get("task_id"),
+                    "name": (artifact or {}).get("name") or result.get("report", {}).get("name") or task.get("title"),
+                    "path": (artifact or {}).get("local_path") or target.get("delivery_path") or result.get("report", {}).get("local_path") or result.get("report", {}).get("name") or task.get("task_id"),
                     "status": task.get("status", "completed").upper(),
                     "task_id": task.get("task_id"),
                 }
             )
         return deliveries[-10:]
+
+    def _visible_artifact(self, task: dict) -> dict | None:
+        artifacts = task.get("artifacts") or []
+        target_path = (task.get("target") or {}).get("delivery_path")
+        desired_output = task.get("desired_output")
+        for artifact in artifacts:
+            if not artifact.get("visible_in_human_cabin"):
+                continue
+            if artifact.get("local_path") == target_path or artifact.get("name") == desired_output:
+                return artifact
+        for artifact in reversed(artifacts):
+            if artifact.get("visible_in_human_cabin"):
+                return artifact
+        return None
 
     def _recent_activity(self, tasks: list[dict]) -> list[dict]:
         events: list[dict] = []

@@ -186,7 +186,8 @@ def test_api_chat_compatibility_uses_creator_console_real_chat(monkeypatch) -> N
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
-    assert payload["reply"] == "FORJA responde por /api/chat sin fallback."
+    assert payload["reply"].startswith("CEO, aqui FORJA.")
+    assert payload["intent"]["name"] == "saludo"
     assert payload["provider"] == "openrouter"
     assert payload["command_id"]
     assert payload["response_received"] is True
@@ -213,12 +214,71 @@ def test_api_chat_creates_local_agent_report_task_from_human_cabin(monkeypatch) 
     assert task["status"] == "queued"
     assert task["task_type"] == "report_generation"
     assert task["desired_output"] == "ECOSYSTEM_APPS_REPORT.md"
-    assert "Local Agent: tarea" in payload["reply"]
+    assert "CEO, tarea creada. La estoy enviando al agente local." in payload["reply"]
+    assert payload["delivery"]["path"].endswith(r"FORJA\ECOSYSTEM_APPS_REPORT.md")
 
     stored = client.get(f"/local-agent/tasks/{task['task_id']}")
     assert stored.status_code == 200
     assert stored.json()["policy"]["requires_backup"] is True
     assert stored.json()["policy"]["requires_rollback_plan"] is True
+    assert stored.json()["target"]["delivery_owner"] == "CEO"
+
+
+def test_api_chat_understands_create_app_intent_and_persists_history(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine("OpenRouter apoyo la respuesta natural.")
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+    session_id = "pytest-create-auditoria"
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Quiero hacer una app que se llame Auditoria. Que necesitas para hacerla?",
+            "app": "FORJA",
+            "session_id": session_id,
+            "context": "human cabin natural intent",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["intent"]["name"] == "crear_app"
+    assert payload["intent"]["requires_local_agent"] is True
+    assert payload["intent"]["requires_confirmation"] is True
+    assert "Para construir AUDITORIA necesito definir 5 cosas" in payload["reply"]
+    assert "Enviar al Local Agent" in payload["reply"]
+    assert payload["local_agent_task"] is None
+
+    history = client.get("/api/chat/history", params={"session_id": session_id})
+    assert history.status_code == 200
+    messages = history.json()["messages"]
+    assert any(message["role"] == "user" and "Auditoria" in message["text"] for message in messages)
+    assert any(message["role"] == "forja" and "AUDITORIA" in message["text"] for message in messages)
+
+
+def test_api_chat_reports_last_delivery_path(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine("OpenRouter apoyo la tarea.")
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+    session_id = "pytest-last-delivery"
+
+    created = client.post(
+        "/api/chat",
+        json={
+            "message": "Genera un inventario de aplicaciones del ecosistema y guardalo como ECOSYSTEM_APPS_REPORT.md",
+            "app": "FORJA",
+            "session_id": session_id,
+            "context": "human cabin report request",
+        },
+    )
+    assert created.status_code == 200
+    expected_path = created.json()["delivery"]["path"]
+
+    response = client.post(
+        "/api/chat",
+        json={"message": "Donde quedo el archivo?", "app": "FORJA", "session_id": session_id},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["intent"]["name"] == "pedir_entrega"
+    assert expected_path in payload["reply"]
 
 
 def test_creator_console_injects_existing_ecosystem_memory(monkeypatch) -> None:
