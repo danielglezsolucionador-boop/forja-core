@@ -15,7 +15,8 @@ Estado final verificado en produccion:
 - Token floor aplicado: SI
 - Microfono integrado en composer: SI
 - Local Agent crea tarea desde Human Cabin: SI
-- Local Agent ejecuta archivo final: NO, no hay agente productivo asignado online
+- Local Agent ejecuta archivo final: SI
+- Agente local visible online desde produccion: SI
 
 ## Backup previo
 
@@ -23,6 +24,99 @@ Estado final verificado en produccion:
 - Tamano: 6.34 MB
 - Fecha: 2026-06-04 08:25:14 America/Lima
 - Exclusiones: `.git`, `node_modules`, `build`, `dist`, `__pycache__`, `.env`, secrets
+
+## Actualizacion foco conversacional y Local Agent
+
+Fecha: 2026-06-04 11:30-11:48 America/Lima
+
+Backup adicional antes de modificar:
+
+- Ruta: `D:\ECOSYSTEM\BACKUPS\forja-operational-recovery-prechange-20260604-113025.zip`
+- Tamano: 9.04 MB
+- Fecha: 2026-06-04 11:31:29 America/Lima
+- Exclusiones: `.git`, `node_modules`, `build`, `dist`, `__pycache__`, `.env`, `.env.*`, `*secrets*`
+
+### Causa del foco mezclado
+
+FORJA ya conversaba, pero el prompt real de chat trataba todas las preguntas como parte de la obra interna:
+
+- `apps/backend/app/api/routes/chat.py` enviaba `Contexto Human Cabin` e historial completo a `creator_service`.
+- `apps/backend/app/services/creator_service.py::_real_chat_objective()` siempre inyectaba memoria del ecosistema, incluso en solicitudes comerciales.
+- `apps/backend/app/services/natural_execution_service.py` no tenia una barrera de salida para impedir que una respuesta de marketing mostrara `CEREBRO`, `Local Agent`, `OpenRouter`, `pipeline`, `runtime` u otros terminos internos.
+
+### Ajuste aplicado
+
+- `CreatorService._real_chat_focus()` distingue tres modos: `commercial`, `internal`, `general`.
+- `CreatorService._commercial_real_chat_objective()` crea un prompt especifico para cliente/marketing.
+- En modo comercial se filtra el contexto permitido y no se inyecta memoria interna.
+- `NaturalExecutionService` agrega un guardrail de salida: si una respuesta comercial trae terminos internos, se reemplaza por un entregable limpio.
+- El historial sigue funcionando para el caso `No entendi...` y mantiene el foco comercial si la sesion venia de una peticion comercial.
+
+Prompt obligatorio cubierto por pruebas:
+
+`Convierte esta idea en un entregable para cliente: campana de 7 dias para captar turistas.`
+
+Validacion esperada:
+
+- Incluye titulo.
+- Incluye objetivo.
+- Incluye publico objetivo.
+- Incluye estrategia.
+- Incluye calendario de 7 dias.
+- Incluye ideas de contenido.
+- Incluye CTA.
+- Incluye siguiente paso.
+- No muestra arquitectura, memoria interna, CEREBRO, CENTINELA, Local Agent, OpenRouter, provider, runtime ni pipeline en la respuesta comercial.
+
+### Local Agent produccion
+
+Estado antes:
+
+- `GET https://forja-core.onrender.com/local-agent/dashboard`
+- `agents.total`: 0
+- `agents.online`: 0
+- Config local anterior apuntaba a Render, pero heartbeat devolvia `401`, por token invalido/registro no presente en produccion.
+
+Conexion realizada:
+
+- Endpoint base: `https://forja-core.onrender.com`
+- Config local: `D:\ECOSYSTEM\FORJA_LOCAL_AGENT\forja-local-agent-production.config.json`
+- Token: presente solo en archivo local; no impreso y no versionado.
+- Comando de arranque:
+
+```powershell
+python tools\forja_local_agent.py --config D:\ECOSYSTEM\FORJA_LOCAL_AGENT\forja-local-agent-production.config.json --interval 15
+```
+
+Tunnel:
+
+- No requerido.
+- Arquitectura real: polling saliente PC -> Render.
+- La PC no necesita exponer localhost porque el agente consulta `/agent/v1/tasks/poll` en produccion.
+
+Evidencia online:
+
+- `agents.total`: 1
+- `agents.online`: 1
+- Agent ID: `agent-510882ec-ee3f-4ae3-8f8d-fc2e6c87363e`
+- Machine label: `admin-pc-windows`
+- Ultimo heartbeat verificado: `2026-06-04T16:40:17.541035+00:00`
+
+Tarea real ejecutada desde Human Cabin/chat:
+
+- Prompt: `Genera un inventario de aplicaciones y guardalo como ECOSYSTEM_APPS_REPORT.md`
+- Endpoint: `POST https://forja-core.onrender.com/api/chat`
+- `reply_source`: `local_agent`
+- Task ID: `task-6706ca0f-3786-4e80-9397-dfe3e804ddc2`
+- Estado final: `completed`
+- Assigned agent: `agent-510882ec-ee3f-4ae3-8f8d-fc2e6c87363e`
+- Snapshots: 1
+- Backups: 1
+- Rollback registrado: SI
+- Artifacts: `ECOSYSTEM_APPS_REPORT.md`, `TASK_REPORT.md`
+- Archivo generado: `D:\ECOSYSTEM\DELIVERIES\FORJA\ECOSYSTEM_APPS_REPORT.md`
+- Tamano local: 3030 bytes
+- Visible en dashboard: SI, `deliveries[0].status=COMPLETED`
 
 ## Evidencia del incidente original
 
@@ -189,17 +283,20 @@ Frontend:
 
 ## Estado Local Agent
 
-La Human Cabin crea correctamente la tarea desde chat, pero el archivo final no se genero porque produccion reporta:
+La Human Cabin crea correctamente la tarea desde chat y el agente local productivo la ejecuta mediante polling PC -> Render.
 
-- Agentes registrados: 0
-- Agentes online: 0
-- Tareas queued: 1
-- Tarea creada: `task-ef702725-01f6-499a-9d8c-eff287908745`
+- Agentes registrados/visibles: 1
+- Agentes online: 1
+- Tareas queued: 0
+- Tareas completed: 1
+- Tarea ejecutada: `task-6706ca0f-3786-4e80-9397-dfe3e804ddc2`
+- Archivo final: `D:\ECOSYSTEM\DELIVERIES\FORJA\ECOSYSTEM_APPS_REPORT.md`
 
 Conclusion honesta:
 
 - Local Agent desde Human Cabin: tarea creada y visible, SI
-- Ejecucion real del archivo por agente local: NO, falta agente operativo conectado
+- Ejecucion real del archivo por agente local: SI
+- Snapshot, backup, rollback y resultado visible: SI
 
 ## Seguridad
 
@@ -238,5 +335,4 @@ Conclusion honesta:
 - Token floor y fallback de credito: SI
 - Microfono integrado: SI
 - Human Cabin intacta: SI
-- Local Agent genera archivo final: NO, no hay agente conectado online
-
+- Local Agent genera archivo final: SI

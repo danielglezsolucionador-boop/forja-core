@@ -199,6 +199,56 @@ def test_api_chat_compatibility_uses_creator_console_real_chat(monkeypatch) -> N
     assert fake_engine.payloads[0]["max_tokens"] == 1800
 
 
+def test_api_chat_marketing_focus_does_not_inject_ecosystem_memory(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine(
+        "Titulo: Propuesta para agencia de viajes. Objetivo: captar turistas. Calendario: 7 dias. CTA: Reserva hoy."
+    )
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+    monkeypatch.setattr(creator_service, "_ecosystem_memory", FakeEcosystemMemory())
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Convierte esta idea en un entregable para cliente: campana de 7 dias para captar turistas.",
+            "app": "FORJA",
+            "context": "Human Cabin tiene CEREBRO, CENTINELA, Local Agent y memoria interna visibles.",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    objective = fake_engine.payloads[0]["objective"]
+    assert payload["intent"]["name"] == "preparar_marketing"
+    assert payload["reply_source"] == "openrouter"
+    assert "modo cliente/marketing" in objective
+    assert "calendario de 7 dias" in objective
+    assert "FORJA_PHASE2_DECISION_TRACE.md" not in objective
+    assert "Apps registradas" not in objective
+    assert "Human Cabin tiene CEREBRO" not in objective
+
+
+def test_api_chat_marketing_guardrail_removes_internal_leaks(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine("Debemos usar CEREBRO, Local Agent, OpenRouter y la arquitectura interna.")
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Hazme un entregable formal para enviar a un cliente, con titulo, objetivo, estrategia, acciones y proximos pasos.",
+            "app": "FORJA",
+            "context": "validacion marketing",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["reply_source"] == "commercial_guardrail"
+    assert "CEREBRO" not in payload["reply"]
+    assert "Local Agent" not in payload["reply"]
+    assert "OpenRouter" not in payload["reply"]
+    assert "Titulo:" in payload["reply"]
+    assert "Objetivo:" in payload["reply"]
+    assert "Siguiente paso:" in payload["reply"]
+
+
 def test_api_chat_uses_safe_token_floor_and_cap(monkeypatch) -> None:
     monkeypatch.delenv("FORJA_OPENROUTER_MAX_TOKENS", raising=False)
     monkeypatch.delenv("OPENROUTER_MAX_TOKENS", raising=False)

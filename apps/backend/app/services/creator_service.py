@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import unicodedata
 import uuid
 from collections import Counter
 from typing import Any
@@ -38,6 +39,85 @@ REAL_CHAT_MIN_TOKENS = 1200
 REAL_CHAT_MAX_TOKENS_CAP = 2500
 REAL_CHAT_TIMEOUT_SECONDS = 45
 REAL_CHAT_RATE_LIMIT_MAX_REQUESTS = 12
+COMMERCIAL_REQUEST_MARKERS = [
+    "agencia",
+    "anuncio",
+    "audiencia",
+    "calendario",
+    "campana",
+    "captar",
+    "cliente",
+    "contenido",
+    "copy",
+    "cta",
+    "email",
+    "entregable",
+    "instagram",
+    "landing",
+    "lead",
+    "marketing",
+    "oferta",
+    "propuesta",
+    "publico",
+    "redes",
+    "tiktok",
+    "turismo",
+    "turista",
+    "ventas",
+    "viajes",
+    "whatsapp",
+]
+INTERNAL_REQUEST_MARKERS = [
+    "arquitectura",
+    "backend",
+    "bug",
+    "cav",
+    "cerebro",
+    "centinela",
+    "deploy",
+    "fallback",
+    "forja responde",
+    "frontend",
+    "gobierno",
+    "local agent",
+    "memoria",
+    "openrouter",
+    "pipeline",
+    "produccion",
+    "provider",
+    "recuperando forja",
+    "render",
+    "runtime",
+    "token",
+]
+STRONG_INTERNAL_REQUEST_MARKERS = [
+    "bug",
+    "deploy",
+    "fallback",
+    "local agent",
+    "openrouter",
+    "pipeline",
+    "provider",
+    "recuperando forja",
+    "render",
+    "runtime",
+]
+COMMERCIAL_CONTEXT_BLOCKERS = [
+    "aprobador",
+    "arquitectura",
+    "backend",
+    "cav",
+    "cerebro",
+    "centinela",
+    "gobierno",
+    "local agent",
+    "memoria interna",
+    "modulo tecnico",
+    "openrouter",
+    "pipeline",
+    "provider",
+    "runtime",
+]
 
 
 class CreatorService:
@@ -1110,6 +1190,10 @@ class CreatorService:
     def _real_chat_objective(self, payload: dict, memory_snapshot: dict | None = None) -> str:
         command = " ".join(str(payload.get("command", "")).split())
         details = " ".join(str(payload.get("details", "")).split())
+        focus = self._real_chat_focus(command, details)
+        if focus == "commercial":
+            return self._commercial_real_chat_objective(command, details)
+
         memory_context = self._ecosystem_memory.prompt_context(memory_snapshot)
         objective = (
             "Responde como FORJA, Directora de Construccion del ecosistema. "
@@ -1118,12 +1202,66 @@ class CreatorService:
             "Si el CEO pide contenido, entrega estructura, ideas, calendario, primer paso y entregable sugerido. "
             "Si el CEO pide simplificar, usa la conversacion reciente y di exactamente que hacer primero. "
             "Usa memoria real conectada cuando pregunte por aplicaciones, prioridades, bloqueos, activos o faltantes. "
+            "Si la pregunta es interna sobre FORJA, produccion, proveedor, memoria o Local Agent, responde sobre ese estado operativo. "
             "Nunca respondas con una plantilla fija si hay una solicitud concreta. "
             f"Mensaje del usuario: {command}\n"
             f"Contexto de Human Cabin e historial reciente: {details}\n"
             f"{memory_context}"
         )
         return objective[:6000]
+
+    def _real_chat_focus(self, command: str, details: str) -> str:
+        command_text = self._normalize_chat_text(command)
+        details_text = self._normalize_chat_text(details)
+        simplify = any(marker in command_text for marker in ["no entendi", "explicamelo", "mas simple", "que hago primero"])
+        commercial = self._has_marker(command_text, COMMERCIAL_REQUEST_MARKERS) or (
+            simplify and self._has_marker(details_text, COMMERCIAL_REQUEST_MARKERS)
+        )
+        strong_internal = self._has_marker(command_text, STRONG_INTERNAL_REQUEST_MARKERS)
+        if commercial and not strong_internal:
+            return "commercial"
+        if self._has_marker(command_text, INTERNAL_REQUEST_MARKERS):
+            return "internal"
+        return "general"
+
+    def _commercial_real_chat_objective(self, command: str, details: str) -> str:
+        context = self._commercial_context(details)
+        objective = (
+            "Responde como FORJA en modo cliente/marketing. "
+            "Tu trabajo aqui es convertir una idea comercial en una pieza clara, humana y lista para ejecutar. "
+            "No menciones CEREBRO, CENTINELA, PLUMA, memoria interna, CAV, aprobadores, modulos tecnicos, arquitectura, "
+            "gobierno interno, Local Agent, OpenRouter, provider, runtime, pipeline, backend ni frontend. "
+            "No uses frases institucionales como 'he evaluado riesgos criticos', 'gobierno de FORJA' o "
+            "'coordinare correcciones prioritarias'. "
+            "Habla del cliente, el objetivo, la estrategia, la campana, el calendario, las acciones, el entregable y el siguiente paso. "
+            "Si el CEO pide una campana de 7 dias, incluye obligatoriamente titulo, objetivo, publico objetivo, estrategia, "
+            "calendario de 7 dias, ideas de contenido, CTA y siguiente paso. "
+            "Si el CEO pide que lo expliques mas simple, resume el plan en lenguaje directo y termina diciendo exactamente que hacer primero. "
+            "Tono: cercano, claro, ejecutivo y util, sin sonar tecnico ni robotico. "
+            f"Solicitud del CEO: {command}\n"
+            f"Contexto comercial permitido: {context}"
+        )
+        return objective[:6000]
+
+    def _commercial_context(self, details: str) -> str:
+        lines = [line.strip() for line in str(details or "").splitlines() if line.strip()]
+        kept: list[str] = []
+        for line in lines:
+            normalized = self._normalize_chat_text(line)
+            if self._has_marker(normalized, COMMERCIAL_CONTEXT_BLOCKERS):
+                continue
+            if self._has_marker(normalized, COMMERCIAL_REQUEST_MARKERS) or normalized.startswith(("user:", "forja:")):
+                kept.append(line[:500])
+        if not kept:
+            return "sin contexto comercial previo"
+        return " | ".join(kept[-8:])
+
+    def _has_marker(self, text: str, markers: list[str]) -> bool:
+        return any(marker in text for marker in markers)
+
+    def _normalize_chat_text(self, value: str) -> str:
+        folded = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode("ascii")
+        return " ".join(folded.lower().split())
 
     def _real_chat_max_tokens(self) -> int:
         raw = os.environ.get("FORJA_OPENROUTER_MAX_TOKENS", os.environ.get("OPENROUTER_MAX_TOKENS", "")).strip()

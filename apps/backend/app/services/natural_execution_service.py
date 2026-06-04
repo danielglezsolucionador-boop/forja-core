@@ -19,6 +19,50 @@ APP_NAME_RE = re.compile(
     r"(?:app|aplicacion)\s+(?:llamada|llamado|que\s+se\s+llame|con\s+nombre)\s+['\"]?([^?!\n\r]{2,100})",
     re.IGNORECASE,
 )
+COMMERCIAL_INTENT_MARKERS = [
+    "agencia",
+    "anuncio",
+    "audiencia",
+    "calendario",
+    "campana",
+    "captar",
+    "cliente",
+    "contenido",
+    "copy",
+    "cta",
+    "email",
+    "entregable",
+    "instagram",
+    "landing",
+    "lead",
+    "marketing",
+    "oferta",
+    "propuesta",
+    "publico",
+    "redes",
+    "tiktok",
+    "turismo",
+    "turista",
+    "ventas",
+    "viajes",
+    "whatsapp",
+]
+INTERNAL_LEAK_MARKERS = [
+    "aprobador",
+    "arquitectura",
+    "backend",
+    "cav",
+    "cerebro",
+    "centinela",
+    "gobierno de forja",
+    "local agent",
+    "memoria interna",
+    "modulo tecnico",
+    "openrouter",
+    "pipeline",
+    "provider",
+    "runtime",
+]
 
 
 @dataclass(frozen=True)
@@ -62,6 +106,9 @@ class NaturalExecutionService:
         delivery = self._delivery_for_intent(intent)
         local_agent_task = None
         reply_source = "emergency_fallback"
+        commercial_context = self._is_commercial_intent(intent, clean_message) or (
+            self._is_simplification_request(clean_message) and self._session_has_recent_commercial_context(session_id)
+        )
 
         if self._asks_for_last_file(clean_message):
             reply = self._last_file_reply(session_id)
@@ -82,11 +129,19 @@ class NaturalExecutionService:
         else:
             provider_reply = self._provider_reply(openrouter_record)
             if provider_reply:
-                reply = provider_reply
-                reply_source = "openrouter"
+                if commercial_context and self._contains_internal_leak(provider_reply):
+                    reply = self._commercial_reply(clean_message)
+                    reply_source = "commercial_guardrail"
+                else:
+                    reply = provider_reply
+                    reply_source = "openrouter"
             elif self._provider_was_called(openrouter_record):
-                reply = self._provider_degraded_reply(openrouter_record, provider_state)
-                reply_source = "provider_degraded"
+                if commercial_context:
+                    reply = self._commercial_reply(clean_message)
+                    reply_source = "commercial_fallback"
+                else:
+                    reply = self._provider_degraded_reply(openrouter_record, provider_state)
+                    reply_source = "provider_degraded"
             else:
                 reply = self._executive_reply(clean_message, intent, memory, delivery)
                 reply_source = "memory_direct" if intent.name != "desconocida" else "emergency_fallback"
@@ -143,6 +198,8 @@ class NaturalExecutionService:
             return IntentResult("crear_app", 0.94, app_name, filename, True, True, actions)
         if filename or (any(word in normalized for word in ["genera", "generar", "crea", "crear", "prepara"]) and any(word in normalized for word in ["inventario", "reporte", "archivo", "guardar", "guardalo"])):
             return IntentResult("generar_reporte", 0.93, app_name, filename or "FORJA_LOCAL_AGENT_REPORT.md", True, False, ["Crear tarea", "Enviar al Local Agent", "Mostrar resultado"])
+        if self._is_commercial_request(normalized):
+            return IntentResult("preparar_marketing", 0.9, app_name, filename, False, False, ["Definir objetivo", "Crear calendario", "Preparar entregable"])
         if "auditar" in normalized or "auditoria" in normalized:
             return IntentResult("auditar_app", 0.86, app_name, filename, True, True, ["Preparar auditoria", "Crear tarea", "Enviar al Local Agent"])
         if any(word in normalized for word in ["modificar", "corregir", "cambiar", "implementar"]):
@@ -188,6 +245,8 @@ class NaturalExecutionService:
             return "CEO, aqui FORJA. Estoy lista para ordenar la obra, leer memoria real y enviar trabajo al Local Agent cuando me des una instruccion ejecutable."
         if intent.name in {"revisar_ecosistema", "pedir_estado"}:
             return self._ecosystem_reply(memory)
+        if intent.name == "preparar_marketing":
+            return self._commercial_reply(message)
         if intent.name == "pedir_siguiente_paso":
             priorities = memory.get("priorities") or []
             next_step = priorities[0] if priorities else "definir una tarea verificable y enviarla al Local Agent."
@@ -198,6 +257,32 @@ class NaturalExecutionService:
                 "Antes de ejecutar cambios necesito objetivo exacto, repositorio afectado y aprobacion humana si modifica codigo."
             )
         return "CEO, recibido. Puedo convertir tu idea en tarea, guardarla como entrega o pedirte los datos minimos para construirla sin inventar."
+
+    def _commercial_reply(self, message: str) -> str:
+        normalized = self._normalize(message)
+        if "no entendi" in normalized or "explicamelo" in normalized or "mas simple" in normalized:
+            return (
+                "Claro. Primero define una sola oferta para el cliente: que vendes, a quien se lo vendes y que accion quieres que haga.\n\n"
+                "Lo primero que haria ahora es escribir una frase simple de la campana: "
+                "'Durante 7 dias mostraremos una experiencia concreta y cerraremos cada pieza con una invitacion directa a reservar o pedir informacion.'"
+            )
+        return (
+            "Titulo: Campana de 7 dias para captar turistas\n\n"
+            "Objetivo: atraer consultas calificadas y convertir interes en reservas o reuniones comerciales.\n\n"
+            "Publico objetivo: turistas que estan comparando experiencias, paquetes o actividades y necesitan una razon clara para decidir ahora.\n\n"
+            "Estrategia: combinar inspiracion, prueba social y oferta directa. Cada dia debe mover al cliente un paso: descubrir, confiar, preguntar y reservar.\n\n"
+            "Calendario de 7 dias:\n"
+            "1. Presentar la experiencia principal con una promesa clara.\n"
+            "2. Mostrar el problema que resuelve: ahorrar tiempo, evitar incertidumbre y vivir una experiencia mejor guiada.\n"
+            "3. Publicar prueba social: testimonio, caso, foto real o historia de cliente.\n"
+            "4. Comparar opciones y explicar por que esta propuesta es mas simple y segura.\n"
+            "5. Responder preguntas frecuentes sobre precio, horarios, seguridad y disponibilidad.\n"
+            "6. Lanzar una oferta o beneficio por tiempo limitado.\n"
+            "7. Cerrar con recordatorio, urgencia amable y llamada directa a reservar.\n\n"
+            "Ideas de contenido: reel corto, carrusel con itinerario, historia con encuesta, testimonio, checklist de viaje y mensaje directo de reserva.\n\n"
+            "CTA: Escribenos 'CUSCO' y te enviamos disponibilidad y recomendacion personalizada.\n\n"
+            "Siguiente paso: elegir una experiencia concreta y escribir el primer post con una foto fuerte, una promesa simple y el CTA."
+        )
 
     def _ecosystem_reply(self, memory: dict) -> str:
         apps = self._join(memory.get("registered_apps") or [])
@@ -234,6 +319,28 @@ class NaturalExecutionService:
             f"Estado del proveedor: {provider_state}; comando: {status}; motivo: {reason}. "
             "No voy a inventar una respuesta con plantilla. Puedes reintentar en unos segundos o pedirme que convierta esto en tarea verificable para el Local Agent."
         )
+
+    def _is_commercial_intent(self, intent: IntentResult, message: str) -> bool:
+        return intent.name == "preparar_marketing" or self._is_commercial_request(self._normalize(message))
+
+    def _is_commercial_request(self, normalized: str) -> bool:
+        return any(marker in normalized for marker in COMMERCIAL_INTENT_MARKERS)
+
+    def _contains_internal_leak(self, reply: str) -> bool:
+        normalized = self._normalize(reply)
+        return any(marker in normalized for marker in INTERNAL_LEAK_MARKERS)
+
+    def _is_simplification_request(self, message: str) -> bool:
+        normalized = self._normalize(message)
+        return any(marker in normalized for marker in ["no entendi", "explicamelo", "mas simple", "que hago primero"])
+
+    def _session_has_recent_commercial_context(self, session_id: str) -> bool:
+        entries = [entry for entry in self._conversation_store.read([]) if entry.get("session_id") == session_id]
+        for entry in reversed(entries[-6:]):
+            text = self._normalize(f"{entry.get('user_message', '')} {entry.get('forja_reply', '')}")
+            if self._is_commercial_request(text):
+                return True
+        return False
 
     def _create_local_agent_task(self, message: str, intent: IntentResult, delivery: dict | None) -> dict:
         filename = intent.desired_output or "FORJA_LOCAL_AGENT_REPORT.md"
