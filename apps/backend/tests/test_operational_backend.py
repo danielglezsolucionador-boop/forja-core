@@ -272,6 +272,45 @@ def test_api_chat_marketing_guardrail_replaces_low_value_safety_reply(monkeypatc
     assert "Siguiente paso:" in payload["reply"]
 
 
+def test_api_chat_marketing_guardrail_requires_complete_client_deliverable(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine("Entendido. Primer paso: crear un calendario para publicar durante 7 dias.")
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Convierte esta idea en un entregable para cliente: campana de 7 dias para captar turistas.",
+            "app": "FORJA",
+            "context": "validacion marketing",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["reply_source"] == "commercial_guardrail"
+    for expected in ["Titulo:", "Objetivo:", "Publico objetivo:", "Estrategia:", "Calendario de 7 dias:", "CTA:", "Siguiente paso:"]:
+        assert expected in payload["reply"]
+
+
+def test_api_chat_recovery_review_uses_internal_guardrail(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine("Accion inmediata: crear un video y una presentacion esta semana.")
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Estamos recuperando FORJA porque respondia mal. Que estamos revisando ahora?",
+            "app": "FORJA",
+            "context": "validacion interna",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["reply_source"] == "internal_guardrail"
+    assert "Foco conversacional" in payload["reply"]
+    assert "Local Agent" in payload["reply"]
+    assert "prompts reales" in payload["reply"]
+
+
 def test_api_chat_uses_safe_token_floor_and_cap(monkeypatch) -> None:
     monkeypatch.delenv("FORJA_OPENROUTER_MAX_TOKENS", raising=False)
     monkeypatch.delenv("OPENROUTER_MAX_TOKENS", raising=False)

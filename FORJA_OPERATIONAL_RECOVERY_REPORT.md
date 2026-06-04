@@ -77,6 +77,17 @@ Fallo encontrado en validacion productiva posterior al primer push:
 - Correccion: `NaturalExecutionService._is_low_value_commercial_reply()` fuerza fallback comercial limpio cuando la respuesta no cumple utilidad minima.
 - Test agregado: `test_api_chat_marketing_guardrail_replaces_low_value_safety_reply`
 
+Fallo adicional encontrado en validacion final:
+
+- El prompt `Convierte esta idea en un entregable para cliente: campana de 7 dias para captar turistas.` podia recibir una respuesta accionable pero incompleta.
+- El prompt interno `Estamos recuperando FORJA porque respondia mal. Que estamos revisando ahora?` podia quedar contaminado por el hilo comercial anterior.
+
+Correcciones adicionales:
+
+- `NaturalExecutionService._commercial_reply_is_complete()` exige estructura minima para entregables de cliente: titulo, objetivo, publico, estrategia, calendario, CTA y siguiente paso.
+- `NaturalExecutionService._recovery_review_reply()` da una respuesta interna controlada sobre foco conversacional, tono, calidad y Local Agent.
+- Tests agregados: `test_api_chat_marketing_guardrail_requires_complete_client_deliverable` y `test_api_chat_recovery_review_uses_internal_guardrail`.
+
 ### Local Agent produccion
 
 Estado antes:

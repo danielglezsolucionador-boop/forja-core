@@ -129,7 +129,14 @@ class NaturalExecutionService:
         else:
             provider_reply = self._provider_reply(openrouter_record)
             if provider_reply:
-                if commercial_context and (self._contains_internal_leak(provider_reply) or self._is_low_value_commercial_reply(provider_reply)):
+                if self._is_recovery_review_request(clean_message) and self._is_low_value_recovery_reply(provider_reply):
+                    reply = self._recovery_review_reply()
+                    reply_source = "internal_guardrail"
+                elif commercial_context and (
+                    self._contains_internal_leak(provider_reply)
+                    or self._is_low_value_commercial_reply(provider_reply)
+                    or not self._commercial_reply_is_complete(clean_message, provider_reply)
+                ):
                     reply = self._commercial_reply(clean_message)
                     reply_source = "commercial_guardrail"
                 else:
@@ -284,6 +291,16 @@ class NaturalExecutionService:
             "Siguiente paso: elegir una experiencia concreta y escribir el primer post con una foto fuerte, una promesa simple y el CTA."
         )
 
+    def _recovery_review_reply(self) -> str:
+        return (
+            "Estamos revisando exactamente esto:\n\n"
+            "1. Foco conversacional: que FORJA distinga trabajo interno de trabajo comercial para cliente.\n"
+            "2. Tono: que en marketing responda como constructora de entregables, no como auditor tecnico.\n"
+            "3. Calidad de respuesta: que no salgan respuestas cortas, genericas o desviadas.\n"
+            "4. Local Agent: que haya 1 agente local online visible desde produccion y que ejecute tareas reales.\n\n"
+            "Ahora el primer punto concreto es validar los prompts reales y confirmar que el agente recibe, ejecuta y devuelve resultado visible."
+        )
+
     def _ecosystem_reply(self, memory: dict) -> str:
         apps = self._join(memory.get("registered_apps") or [])
         active = self._join(memory.get("active_apps") or [])
@@ -336,6 +353,32 @@ class NaturalExecutionService:
         if len(clean) < 220:
             return True
         return normalized.startswith("user safety:") or normalized in {"safe", "user safety safe"}
+
+    def _commercial_reply_is_complete(self, message: str, reply: str) -> bool:
+        normalized_message = self._normalize(message)
+        if not any(marker in normalized_message for marker in ["campana", "propuesta", "entregable", "cliente", "calendario"]):
+            return True
+        normalized_reply = self._normalize(reply)
+        required_groups = [
+            ["titulo", "propuesta de campana"],
+            ["objetivo"],
+            ["publico", "audiencia", "target"],
+            ["estrategia"],
+            ["calendario", "dia 1", "7 dias"],
+            ["cta", "llamada a la accion", "escribenos"],
+            ["siguiente paso", "primer paso", "proximos pasos"],
+        ]
+        return all(any(marker in normalized_reply for marker in group) for group in required_groups)
+
+    def _is_recovery_review_request(self, message: str) -> bool:
+        normalized = self._normalize(message)
+        return "recuperando forja" in normalized or ("forja" in normalized and "respondia mal" in normalized)
+
+    def _is_low_value_recovery_reply(self, reply: str) -> bool:
+        normalized = self._normalize(reply)
+        if len(normalized) < 260:
+            return True
+        return not all(marker in normalized for marker in ["foco", "local agent"])
 
     def _is_simplification_request(self, message: str) -> bool:
         normalized = self._normalize(message)
