@@ -383,6 +383,18 @@ Validaciones tecnicas locales:
 - `python -m pytest apps\backend\tests\test_operational_backend.py apps\backend\tests\test_local_agent_v1.py -q`: PASS, 34 passed
 - `npm run build` en `apps/frontend`: PASS
 
+Estado post-push Render:
+
+- Commit de fix subido a `origin/main`: `af3e204 fix forja human cabin chat panel and provider payload`
+- GitHub contiene el commit: SI
+- Autodeploy Render detectado durante la ventana de validacion: NO
+- Backend productivo sigue mostrando `ChatRequest.context.maxLength=12000` en `https://forja-core.onrender.com/openapi.json`.
+- Prueba productiva con contexto de 13,000 caracteres: `422 string_too_long`, maximo 12,000.
+- Resultado: produccion aun no sirve el fix de compactacion.
+- Render Dashboard solicita login y no hay `RENDER_API_KEY`, Render CLI ni deploy hook local disponible.
+- Local Agent productivo sigue operativo: `agents.online=1`, `tasks.completed=3`.
+- No se declara produccion PASS hasta ejecutar o reactivar deploy Render y repetir validacion.
+
 ## Evidencia del incidente original
 
 Produccion antes del fix:
