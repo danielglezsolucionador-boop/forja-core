@@ -415,6 +415,16 @@ Fix adicional de frontend productivo real:
 - Build real de `frontend/`: PASS con `main.30ce5ff1.js` y `main.d43904f6.css`.
 - No se tocaron CEREBRO, DCFT ni Local Agent.
 
+Estado final del despliegue frontend:
+
+- Commit de frontend desplegable subido: `1b01be3 fix forja deployed frontend chat panel`.
+- Backend Render si desplego los cambios de chat y guardrail.
+- Frontend Render no actualizo assets durante la ventana de validacion.
+- Assets productivos observados despues del push: `assets/index-CbEwSm5C.js`, `assets/index-CxygqUnl.css`.
+- Assets esperados para `apps/frontend`: `assets/index-DE2d_k2z.js`, `assets/index-DTSvWQUt.css`.
+- Render Dashboard requiere login, no hay CLI/token/deploy hook local disponible.
+- Resultado honesto: UI productiva queda pendiente de deploy manual de `forja-frontend`; codigo corregido y versionado, pero static service no publico el nuevo build.
+
 ## Evidencia del incidente original
 
 Produccion antes del fix:
