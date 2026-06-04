@@ -61,6 +61,21 @@ def chat_history(session_id: str = DEFAULT_SESSION_ID, limit: int = 60) -> dict:
     return natural_execution_service.history(session_id=session_id, limit=limit)
 
 
+def _recent_history_context(session_id: str, limit: int = 10) -> str:
+    try:
+        history = natural_execution_service.history(session_id=session_id, limit=limit * 2)
+    except Exception:
+        return ""
+    messages = history.get("messages", [])[-limit:]
+    lines: list[str] = []
+    for item in messages:
+        role = str(item.get("role") or "unknown").strip()
+        text = " ".join(str(item.get("text") or "").split())
+        if text:
+            lines.append(f"{role}: {text[:700]}")
+    return "\n".join(lines)
+
+
 @router.post("")
 def chat(payload: ChatRequest) -> dict:
     message = payload.message.strip()
@@ -71,10 +86,15 @@ def chat(payload: ChatRequest) -> dict:
 
     provider_state = _openrouter_state()
     command = message[:240]
+    session_id = payload.session_id or DEFAULT_SESSION_ID
+    recent_history = _recent_history_context(session_id)
     details = (
         "Responder siempre en espanol ejecutivo como Directora de Construccion. "
         "No mostrar reporte tecnico crudo. Convertir lenguaje natural del CEO en intencion, tarea o estado. "
-        f"Contexto Human Cabin:\n{payload.context}"
+        "Si el CEO pide contenido, devolver estructura, ideas, calendario, primer paso y entregable sugerido. "
+        "Si el CEO pide simplificar, responder usando el historial reciente. "
+        f"Contexto Human Cabin:\n{payload.context}\n\n"
+        f"Historial conversacional persistido:\n{recent_history or 'sin historial previo'}"
     )
     if len(message) > 240:
         details = f"Mensaje completo: {message}\n\n{details}".strip()
@@ -86,7 +106,7 @@ def chat(payload: ChatRequest) -> dict:
 
     result = natural_execution_service.handle_message(
         message,
-        session_id=payload.session_id or DEFAULT_SESSION_ID,
+        session_id=session_id,
         input_mode=payload.input_mode or "text",
         provider_state=provider_state,
         openrouter_record=record,

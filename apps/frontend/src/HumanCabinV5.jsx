@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import useForjaRuntime from "./hooks/useForjaRuntime";
 import { apiUrl } from "./lib/humanCabinApi";
 
@@ -41,6 +41,7 @@ const promptExamples = [
 ];
 
 const CHAT_SESSION_ID = "ceo-human-cabin";
+const CHAT_SESSION_STORAGE_KEY = "forja_human_cabin_session_id_v1";
 const CHAT_STORAGE_KEY = "forja_human_cabin_chat_v1";
 const DEFAULT_CHAT_MESSAGES = [
   { role: "forja", text: "CEO, aqui FORJA. Estoy lista para ordenar la obra, leer memoria real y enviar trabajo al Local Agent." },
@@ -59,6 +60,14 @@ function loadStoredChatMessages() {
     return DEFAULT_CHAT_MESSAGES;
   }
   return DEFAULT_CHAT_MESSAGES;
+}
+
+function loadChatSessionId() {
+  if (typeof window === "undefined") return CHAT_SESSION_ID;
+  const stored = window.localStorage.getItem(CHAT_SESSION_STORAGE_KEY);
+  if (stored && /^[A-Za-z0-9_.-]{3,120}$/.test(stored)) return stored;
+  window.localStorage.setItem(CHAT_SESSION_STORAGE_KEY, CHAT_SESSION_ID);
+  return CHAT_SESSION_ID;
 }
 
 function historyMessages(payload) {
@@ -177,6 +186,17 @@ function buildDirectorLines(snapshot, runtime) {
 
 function StatusPill({ status }) {
   return <span className={`status-pill ${toneForStatus(status)}`}>{normalizedStatus(status)}</span>;
+}
+
+function MicIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
+      <path d="M6 11v1a6 6 0 0 0 12 0v-1" />
+      <path d="M12 18v3" />
+      <path d="M9 21h6" />
+    </svg>
+  );
 }
 
 function SidebarMetric({ label, metric, compact }) {
@@ -464,12 +484,25 @@ function ChatForja({ snapshot, lines }) {
   const [chatStatus, setChatStatus] = useState("UNKNOWN");
   const [sending, setSending] = useState(false);
   const [listening, setListening] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState("");
+  const [conversationId, setConversationId] = useState(loadChatSessionId);
   const [messages, setMessages] = useState(loadStoredChatMessages);
+  const chatLogRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(CHAT_SESSION_STORAGE_KEY, conversationId);
+  }, [conversationId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages.slice(-60)));
   }, [messages]);
+
+  useEffect(() => {
+    const node = chatLogRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [messages, sending]);
 
   useEffect(() => {
     let alive = true;
@@ -482,12 +515,12 @@ function ChatForja({ snapshot, lines }) {
         if (alive) setChatStatus("error");
       });
 
-    fetch(apiUrl(`/api/chat/history?session_id=${CHAT_SESSION_ID}`), { headers: { Accept: "application/json" } })
+    fetch(apiUrl(`/api/chat/history?session_id=${encodeURIComponent(conversationId)}`), { headers: { Accept: "application/json" } })
       .then((response) => response.json())
       .then((data) => {
         const serverMessages = historyMessages(data);
         if (alive && serverMessages.length) {
-          setMessages((current) => (serverMessages.length > current.length ? serverMessages : current));
+          setMessages(serverMessages);
         }
       })
       .catch(() => {});
@@ -495,7 +528,7 @@ function ChatForja({ snapshot, lines }) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [conversationId]);
 
   function contextPayload() {
     return JSON.stringify({
@@ -570,7 +603,7 @@ function ChatForja({ snapshot, lines }) {
         body: JSON.stringify({
           message: cleanPrompt,
           app: "FORJA",
-          session_id: CHAT_SESSION_ID,
+          session_id: conversationId,
           input_mode: inputMode,
           context: contextPayload(),
         }),
@@ -584,6 +617,9 @@ function ChatForja({ snapshot, lines }) {
         ...current,
         { role: "forja", text: replyFromPayload(data) },
       ]);
+      if (data.conversation?.session_id && data.conversation.session_id !== conversationId) {
+        setConversationId(data.conversation.session_id);
+      }
       if (data.local_agent_task?.task_id) {
         pollLocalAgentTask(data.local_agent_task.task_id);
       }
@@ -601,20 +637,29 @@ function ChatForja({ snapshot, lines }) {
   function startVoiceInput() {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Recognition) {
+      setVoiceStatus("Microfono no disponible. Sigue por texto.");
       setMessages((current) => [
         ...current,
-        { role: "forja", text: "Voz no disponible en este navegador. Escribe el mensaje." },
+        { role: "forja", text: "Microfono no disponible en este navegador. Escribe el mensaje y sigo por texto." },
       ]);
       return;
     }
+    if (listening) return;
     const recognition = new Recognition();
     recognition.lang = "es-ES";
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-    recognition.onstart = () => setListening(true);
-    recognition.onend = () => setListening(false);
+    recognition.onstart = () => {
+      setListening(true);
+      setVoiceStatus("Escuchando...");
+    };
+    recognition.onend = () => {
+      setListening(false);
+      setVoiceStatus("");
+    };
     recognition.onerror = () => {
       setListening(false);
+      setVoiceStatus("No pude tomar audio. Sigue por texto.");
       setMessages((current) => [
         ...current,
         { role: "forja", text: "No pude tomar audio ahora. Escribe el mensaje y sigo por texto." },
@@ -622,7 +667,10 @@ function ChatForja({ snapshot, lines }) {
     };
     recognition.onresult = (event) => {
       const transcript = event.results?.[0]?.[0]?.transcript || "";
-      if (transcript.trim()) submitPrompt(transcript, "voice");
+      if (transcript.trim()) {
+        setVoiceStatus("Mensaje de voz recibido.");
+        submitPrompt(transcript, "voice");
+      }
     };
     recognition.start();
   }
@@ -651,8 +699,8 @@ function ChatForja({ snapshot, lines }) {
           </button>
         ))}
       </div>
-      <div className="chat-log" aria-live="polite">
-        {messages.slice(-5).map((message, index) => (
+      <div className="chat-log" aria-live="polite" ref={chatLogRef}>
+        {messages.slice(-20).map((message, index) => (
           <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}>
             {message.text}
           </div>
@@ -674,10 +722,11 @@ function ChatForja({ snapshot, lines }) {
           title="Dictar mensaje a FORJA"
           aria-label="Dictar mensaje a FORJA"
         >
-          {listening ? "..." : "Voz"}
+          {listening ? "..." : <MicIcon />}
         </button>
         <button type="submit" disabled={!input.trim() || sending}>{sending ? "..." : "Enviar"}</button>
       </form>
+      {voiceStatus ? <div className="voice-status" role="status">{voiceStatus}</div> : null}
     </section>
   );
 }

@@ -26,6 +26,7 @@ class FakeCreatorChatEngine:
             "model_used": "openrouter-test-model",
             "execution_state": "completed",
             "response_received": True,
+            "generated_text": self.text,
             "generated_text_preview": self.text,
             "outputs": [{"logical_path": ".forja/workspaces/test/outputs/chat.generated.md"}],
             "fallback_triggered": False,
@@ -186,13 +187,27 @@ def test_api_chat_compatibility_uses_creator_console_real_chat(monkeypatch) -> N
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
-    assert payload["reply"].startswith("CEO, aqui FORJA.")
+    assert payload["reply"] == "FORJA responde por /api/chat sin fallback."
+    assert payload["reply_source"] == "openrouter"
     assert payload["intent"]["name"] == "saludo"
     assert payload["provider"] == "openrouter"
     assert payload["command_id"]
     assert payload["response_received"] is True
     assert payload["secrets_exposed"] is False
     assert fake_engine.payloads[0]["provider_id"] == "openrouter"
+    assert fake_engine.payloads[0]["max_tokens"] == 1800
+
+
+def test_api_chat_uses_safe_token_floor_and_cap(monkeypatch) -> None:
+    monkeypatch.delenv("FORJA_OPENROUTER_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("OPENROUTER_MAX_TOKENS", raising=False)
+    assert creator_service._real_chat_max_tokens() == 1800
+
+    monkeypatch.setenv("FORJA_OPENROUTER_MAX_TOKENS", "800")
+    assert creator_service._real_chat_max_tokens() == 1200
+
+    monkeypatch.setenv("FORJA_OPENROUTER_MAX_TOKENS", "9000")
+    assert creator_service._real_chat_max_tokens() == 2500
 
 
 def test_api_chat_creates_local_agent_report_task_from_human_cabin(monkeypatch) -> None:
@@ -225,14 +240,16 @@ def test_api_chat_creates_local_agent_report_task_from_human_cabin(monkeypatch) 
 
 
 def test_api_chat_understands_create_app_intent_and_persists_history(monkeypatch) -> None:
-    fake_engine = FakeCreatorChatEngine("OpenRouter apoyo la respuesta natural.")
+    fake_engine = FakeCreatorChatEngine(
+        "OpenRouter apoyo la respuesta natural. Para construir AUDITORIA necesito definir 5 cosas. Enviar al Local Agent."
+    )
     monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
-    session_id = "pytest-create-auditoria"
+    session_id = "pytest-create-auditoria-clean"
 
     response = client.post(
         "/api/chat",
         json={
-            "message": "Quiero hacer una app que se llame Auditoría. ¿Qué necesitas para hacerla?",
+            "message": "Quiero hacer una app que se llame Auditoria. Que necesitas para hacerla?",
             "app": "FORJA",
             "session_id": session_id,
             "context": "human cabin natural intent",
@@ -243,15 +260,16 @@ def test_api_chat_understands_create_app_intent_and_persists_history(monkeypatch
     assert payload["intent"]["name"] == "crear_app"
     assert payload["intent"]["requires_local_agent"] is True
     assert payload["intent"]["requires_confirmation"] is True
-    assert "Para construir AUDITORÍA necesito definir 5 cosas" in payload["reply"]
+    assert "Para construir AUDITORIA necesito definir 5 cosas" in payload["reply"]
     assert "Enviar al Local Agent" in payload["reply"]
+    assert payload["reply_source"] == "openrouter"
     assert payload["local_agent_task"] is None
 
     history = client.get("/api/chat/history", params={"session_id": session_id})
     assert history.status_code == 200
     messages = history.json()["messages"]
-    assert any(message["role"] == "user" and "Auditoría" in message["text"] for message in messages)
-    assert any(message["role"] == "forja" and "AUDITORÍA" in message["text"] for message in messages)
+    assert any(message["role"] == "user" and "Auditoria" in message["text"] for message in messages)
+    assert any(message["role"] == "forja" and "AUDITORIA" in message["text"] for message in messages)
 
 
 def test_api_chat_reports_last_delivery_path(monkeypatch) -> None:

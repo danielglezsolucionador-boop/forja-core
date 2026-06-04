@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 from collections import Counter
 from typing import Any
@@ -32,8 +33,10 @@ OUTPUT_TYPE_BY_REQUEST = {
 }
 
 REAL_CHAT_PROVIDER_ID = "openrouter"
-REAL_CHAT_MAX_TOKENS = 260
-REAL_CHAT_TIMEOUT_SECONDS = 20
+REAL_CHAT_DEFAULT_MAX_TOKENS = 1800
+REAL_CHAT_MIN_TOKENS = 1200
+REAL_CHAT_MAX_TOKENS_CAP = 2500
+REAL_CHAT_TIMEOUT_SECONDS = 45
 REAL_CHAT_RATE_LIMIT_MAX_REQUESTS = 12
 
 
@@ -599,6 +602,7 @@ class CreatorService:
 
     def _create_real_chat_command(self, payload: dict, now: str, request_type: str, risk_level: str) -> dict:
         memory_snapshot = self._ecosystem_memory.snapshot()
+        max_tokens = self._real_chat_max_tokens()
         real_result = self._real_execution_engine.execute(
             {
                 "capability_type": "summarization",
@@ -606,7 +610,7 @@ class CreatorService:
                 "objective": self._real_chat_objective(payload, memory_snapshot),
                 "requested_by": payload["sender"],
                 "provider_id": REAL_CHAT_PROVIDER_ID,
-                "max_tokens": REAL_CHAT_MAX_TOKENS,
+                "max_tokens": max_tokens,
                 "timeout_seconds": REAL_CHAT_TIMEOUT_SECONDS,
                 "safe_mode": True,
                 "fallback_allowed": False,
@@ -615,7 +619,7 @@ class CreatorService:
             }
         )
         success = bool(real_result.get("response_received")) and real_result.get("execution_state") in {"completed", "degraded_mode"}
-        response = str(real_result.get("generated_text_preview") or "real_chat_unavailable").strip()
+        response = str(real_result.get("generated_text") or real_result.get("generated_text_preview") or "real_chat_unavailable").strip()
         status = "completed" if success else "blocked"
         provider_status = "active" if success else "unavailable"
         blocked_reason = None if success else response
@@ -642,6 +646,7 @@ class CreatorService:
                 self._event(now, "command.received", f"Command received from {payload['sender']}."),
                 self._event(now, "request.classified", f"Classified as {request_type} with {risk_level} risk."),
                 self._event(now, "provider.boundary_checked", "OpenRouter real chat path selected with safe-mode limits."),
+                self._event(now, "provider.token_floor", f"OpenRouter chat max_tokens set to {max_tokens}."),
                 self._event(now, "ecosystem_memory.loaded", "Existing ecosystem memory sources loaded in read-only mode."),
             ],
             "execution_logs": [
@@ -670,6 +675,7 @@ class CreatorService:
                 "provider_used": real_result.get("provider_used"),
                 "response_received": real_result.get("response_received"),
                 "external_request_executed": real_result.get("external_request_executed"),
+                "max_tokens": max_tokens,
                 "secrets_exposed": False,
             },
             risk=risk_level,
@@ -1102,13 +1108,29 @@ class CreatorService:
 
     def _real_chat_objective(self, payload: dict, memory_snapshot: dict | None = None) -> str:
         command = " ".join(str(payload.get("command", "")).split())
+        details = " ".join(str(payload.get("details", "")).split())
         memory_context = self._ecosystem_memory.prompt_context(memory_snapshot)
         objective = (
-            "Responde como FORJA en conversacion operativa breve y util. "
-            "Usa la memoria real conectada si el mensaje pregunta por aplicaciones, prioridades, bloqueos, activos o faltantes. "
-            f"Mensaje del usuario: {command}\n{memory_context}"
+            "Responde como FORJA, Directora de Construccion del ecosistema. "
+            "No eres un chatbot generico: eres el sistema operativo de creacion, contenido y entregables del CEO. "
+            "Da respuestas distintas segun la pregunta, completas, accionables y en espanol claro. "
+            "Si el CEO pide contenido, entrega estructura, ideas, calendario, primer paso y entregable sugerido. "
+            "Si el CEO pide simplificar, usa la conversacion reciente y di exactamente que hacer primero. "
+            "Usa memoria real conectada cuando pregunte por aplicaciones, prioridades, bloqueos, activos o faltantes. "
+            "Nunca respondas con una plantilla fija si hay una solicitud concreta. "
+            f"Mensaje del usuario: {command}\n"
+            f"Contexto de Human Cabin e historial reciente: {details}\n"
+            f"{memory_context}"
         )
-        return objective[:1800]
+        return objective[:6000]
+
+    def _real_chat_max_tokens(self) -> int:
+        raw = os.environ.get("FORJA_OPENROUTER_MAX_TOKENS", os.environ.get("OPENROUTER_MAX_TOKENS", "")).strip()
+        try:
+            value = int(raw) if raw else REAL_CHAT_DEFAULT_MAX_TOKENS
+        except ValueError:
+            value = REAL_CHAT_DEFAULT_MAX_TOKENS
+        return max(REAL_CHAT_MIN_TOKENS, min(REAL_CHAT_MAX_TOKENS_CAP, value))
 
     def _execution_policy(self) -> dict:
         return {

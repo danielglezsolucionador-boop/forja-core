@@ -30,7 +30,7 @@ TASK_CAPABILITIES = {
     "architecture_notes": {"architecture", "analysis", "documentation"},
     "documentation": {"documentation", "architecture", "analysis"},
 }
-MAX_REQUEST_CHARS = 1800
+MAX_REQUEST_CHARS = 6000
 RATE_LIMIT_WINDOW_SECONDS = 60
 RATE_LIMIT_MAX_REQUESTS = 3
 SAFE_MODE_BLOCKLIST = {
@@ -96,7 +96,14 @@ class HTTPRealProviderTransport:
         payload = {
             "model": config["model"],
             "messages": [
-                {"role": "system", "content": "You are FORJA running a small governed low-cost execution."},
+                {
+                    "role": "system",
+                    "content": (
+                        "You are FORJA, the ecosystem Construction Director. "
+                        "Answer in clear executive Spanish. Give complete, actionable answers. "
+                        "Do not expose secrets, do not invent hidden system state, and do not repeat a fixed template."
+                    ),
+                },
                 {"role": "user", "content": prompt},
             ],
             "max_tokens": max_tokens,
@@ -112,6 +119,32 @@ class HTTPRealProviderTransport:
                 timeout=timeout_seconds,
             )
             response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            if provider_id == "openrouter" and status_code in {400, 404, 422} and config["model"] != "openai/gpt-4o-mini":
+                payload["model"] = "openai/gpt-4o-mini"
+                try:
+                    response = httpx.post(
+                        f"{config['base_url'].rstrip('/')}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=timeout_seconds,
+                    )
+                    response.raise_for_status()
+                except httpx.TimeoutException as retry_exc:
+                    raise RealProviderTransportError("provider_timeout", "timeout") from retry_exc
+                except httpx.HTTPStatusError as retry_exc:
+                    raise RealProviderTransportError(
+                        self._http_status_reason(retry_exc.response.status_code, retry_exc.response.text),
+                        "provider_failure_detected",
+                    ) from retry_exc
+                except httpx.HTTPError as retry_exc:
+                    raise RealProviderTransportError("provider_http_error", "provider_failure_detected") from retry_exc
+            else:
+                raise RealProviderTransportError(
+                    self._http_status_reason(status_code, exc.response.text),
+                    "provider_failure_detected",
+                ) from exc
         except httpx.TimeoutException as exc:
             raise RealProviderTransportError("provider_timeout", "timeout") from exc
         except httpx.HTTPError as exc:
@@ -124,6 +157,18 @@ class HTTPRealProviderTransport:
             text = str(message.get("content", "")).strip()
         return {"text": text, "model": data.get("model", config["model"]), "usage": data.get("usage", {})}
 
+    def _http_status_reason(self, status_code: int | None, text: str) -> str:
+        safe_text = self._safe_http_error_text(text)
+        if safe_text:
+            return f"provider_http_error_{status_code}: {safe_text}"[:240]
+        return f"provider_http_error_{status_code}" if status_code else "provider_http_error"
+
+    def _safe_http_error_text(self, text: str) -> str:
+        compact = " ".join(str(text or "").split())
+        compact = re.sub(r"sk-or-[A-Za-z0-9._-]+", "sk-or-REDACTED", compact)
+        compact = re.sub(r"sk-[A-Za-z0-9._-]+", "sk-REDACTED", compact)
+        return compact[:180]
+
     def _openai_compatible_config(self, provider_id: str) -> dict:
         if provider_id == "deepseek":
             return {
@@ -135,7 +180,7 @@ class HTTPRealProviderTransport:
             return {
                 "api_key": _env_first("OPENROUTER_API_KEY", "FORJA_OPENROUTER_API_KEY"),
                 "base_url": os.environ.get("FORJA_OPENROUTER_BASE_URL", os.environ.get("OPENROUTER_API_BASE", "https://openrouter.ai/api/v1")),
-                "model": os.environ.get("FORJA_OPENROUTER_MODEL", os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-chat")),
+                "model": os.environ.get("FORJA_OPENROUTER_MODEL", os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")),
                 "headers": {
                     "HTTP-Referer": os.environ.get("FORJA_PUBLIC_URL", "https://forja-frontend.onrender.com"),
                     "X-OpenRouter-Title": "FORJA Operational Core",
@@ -413,6 +458,7 @@ class RealProviderExecutionEngine:
             "max_execution_time": timeout_seconds,
             "max_request_size": MAX_REQUEST_CHARS,
             "response_received": True,
+            "generated_text": generated_text,
             "generated_text_preview": self._preview(generated_text),
             "outputs": [output],
             "fallback_triggered": fallback_triggered,
@@ -469,7 +515,7 @@ class RealProviderExecutionEngine:
             "premium_fallback_provider_ids": premium_provider_ids(),
             "supported_real_providers": real_execution_provider_ids(),
             "supported_tasks": sorted(TASK_OUTPUTS),
-            "max_tokens": 700,
+            "max_tokens": 1800,
             "max_execution_time": 45,
             "max_request_size": MAX_REQUEST_CHARS,
             "rate_limit": {"requests": RATE_LIMIT_MAX_REQUESTS, "window_seconds": RATE_LIMIT_WINDOW_SECONDS},
@@ -585,8 +631,8 @@ class RealProviderExecutionEngine:
             [
                 "You are FORJA's first controlled real AI execution layer.",
                 task_label + ".",
-                "Write only the requested short operational artifact.",
-                "Do not include secrets, API keys, shell commands, deployment steps, or full application generation.",
+                "Write the requested conversational or operational artifact with enough detail to be useful.",
+                "Do not include secrets, API keys, destructive shell commands, autonomous deployment steps, or full application generation.",
                 f"Keep the answer under {max_tokens} output tokens.",
                 f"Objective: {objective}",
             ]

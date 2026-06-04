@@ -61,9 +61,11 @@ class NaturalExecutionService:
         memory = ecosystem_memory_service.snapshot()
         delivery = self._delivery_for_intent(intent)
         local_agent_task = None
+        reply_source = "emergency_fallback"
 
         if self._asks_for_last_file(clean_message):
             reply = self._last_file_reply(session_id)
+            reply_source = "delivery_lookup"
             intent = IntentResult(
                 "pedir_entrega",
                 0.96,
@@ -76,8 +78,18 @@ class NaturalExecutionService:
         elif intent.name == "generar_reporte":
             local_agent_task = self._create_local_agent_task(clean_message, intent, delivery)
             reply = self._report_task_reply(local_agent_task, delivery)
+            reply_source = "local_agent"
         else:
-            reply = self._executive_reply(clean_message, intent, memory, delivery)
+            provider_reply = self._provider_reply(openrouter_record)
+            if provider_reply:
+                reply = provider_reply
+                reply_source = "openrouter"
+            elif self._provider_was_called(openrouter_record):
+                reply = self._provider_degraded_reply(openrouter_record, provider_state)
+                reply_source = "provider_degraded"
+            else:
+                reply = self._executive_reply(clean_message, intent, memory, delivery)
+                reply_source = "memory_direct" if intent.name != "desconocida" else "emergency_fallback"
 
         entry = self._record_interaction(
             session_id,
@@ -99,6 +111,7 @@ class NaturalExecutionService:
                 "input_mode": input_mode,
                 "task_id": (local_agent_task or {}).get("task_id"),
                 "delivery_path": (delivery or {}).get("path"),
+                "reply_source": reply_source,
             },
             risk="low",
         )
@@ -113,7 +126,8 @@ class NaturalExecutionService:
             "conversation": {"session_id": session_id, "persisted": True, "entry_id": entry["id"]},
             "response_received": bool(openrouter_record and openrouter_record.get("status") == "completed"),
             "openrouter_status": (openrouter_record or {}).get("status", "not_called"),
-            "fallback_triggered": False,
+            "reply_source": reply_source,
+            "fallback_triggered": reply_source == "emergency_fallback",
             "secrets_exposed": False,
         }
 
@@ -143,7 +157,7 @@ class NaturalExecutionService:
             return IntentResult("pedir_siguiente_paso", 0.78, app_name, filename, False, False, ["Ver siguiente paso", "Preparar tarea"])
         if any(word in normalized for word in ["build", "test", "prueba", "diagnostico", "tecnico"]):
             return IntentResult("pedir_construccion_tecnica", 0.78, app_name, filename, True, True, ["Crear tarea tecnica", "Pedir aprobacion"])
-        if any(word in normalized for word in ["hola", "buenas", "forja"]):
+        if any(word in normalized for word in ["hola", "buenas"]) or normalized in {"forja", "hola forja"}:
             return IntentResult("saludo", 0.72, app_name, filename, False, False, ["Revisar ecosistema", "Crear tarea"])
         return IntentResult("desconocida", 0.45, app_name, filename, False, False, ["Aclarar objetivo", "Guardar idea"])
 
@@ -196,6 +210,29 @@ class NaturalExecutionService:
             f"CEO, memoria conectada. Aplicaciones registradas: {apps}. "
             f"Activas: {active}. Faltan en memoria maestra: {missing}. "
             f"Estamos construyendo: {construction}. Prioridades: {priorities}. Bloqueos: {blockers}."
+        )
+
+    def _provider_reply(self, record: dict | None) -> str:
+        if not record or record.get("status") != "completed":
+            return ""
+        response = str(record.get("response") or "").strip()
+        if not response or response in {"real_chat_unavailable", "blocked_provider_disabled", "provider_http_error"}:
+            return ""
+        return response
+
+    def _provider_was_called(self, record: dict | None) -> bool:
+        if not record:
+            return False
+        return bool(record.get("id") or record.get("status") or record.get("response") or record.get("error"))
+
+    def _provider_degraded_reply(self, record: dict | None, provider_state: str) -> str:
+        status = str((record or {}).get("status") or "unknown").strip()
+        reason = str((record or {}).get("response") or (record or {}).get("error") or provider_state or "unknown").strip()
+        reason = reason[:220]
+        return (
+            "CEO, OpenRouter no pudo completar esta respuesta ahora. "
+            f"Estado del proveedor: {provider_state}; comando: {status}; motivo: {reason}. "
+            "No voy a inventar una respuesta con plantilla. Puedes reintentar en unos segundos o pedirme que convierta esto en tarea verificable para el Local Agent."
         )
 
     def _create_local_agent_task(self, message: str, intent: IntentResult, delivery: dict | None) -> dict:

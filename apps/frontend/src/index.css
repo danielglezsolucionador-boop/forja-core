@@ -697,6 +697,8 @@ em {
   padding: 13px;
   font-size: 14px;
   line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .chat-message.forja {
@@ -746,6 +748,26 @@ em {
     linear-gradient(180deg, rgba(255, 238, 218, 0.14), rgba(255, 238, 218, 0.04)),
     rgba(242, 191, 106, 0.05);
   color: var(--forja-text);
+  display: inline-grid;
+  place-items: center;
+  padding: 0 14px;
+}
+
+.chat-form .voice-button svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.voice-status {
+  margin-top: -4px;
+  color: var(--forja-muted);
+  font-size: 12px;
+  line-height: 1.3;
 }
 
 .chat-form button:disabled {
@@ -935,11 +957,16 @@ em {
   }
 
   .chat-form {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) 46px 78px;
   }
 
   .chat-form button {
     min-height: 42px;
+    padding: 0 10px;
+  }
+
+  .chat-form .voice-button {
+    min-width: 46px;
   }
 }
 
