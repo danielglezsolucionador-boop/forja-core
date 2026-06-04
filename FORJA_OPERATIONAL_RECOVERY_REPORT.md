@@ -277,6 +277,112 @@ Estado final persistente:
 - Produccion real: SI
 - Human Cabin V5 intacta: SI
 
+## Fix Human Cabin Chat Panel y Payload Provider
+
+Fecha: 2026-06-04 16:56-17:28 America/Lima
+
+Backup previo adicional:
+
+- Ruta: `D:\ECOSYSTEM\BACKUPS\forja-chat-panel-payload-fix-20260604-165602.zip`
+- Tamano: 15,658,494 bytes
+- Fecha: 2026-06-04 16:57:18 America/Lima
+- Exclusiones: `.git`, `node_modules`, `build`, `dist`, `__pycache__`, `.pytest_cache`, `.venv`, `venv`, `.env`, `.env.*`, `*.log`
+
+Causa corregida:
+
+- La columna derecha de Human Cabin quedaba comprimida en desktop y el chat no tenia una zona interna de scroll suficientemente estable.
+- En mobile, el chat secundario podia competir con secciones posteriores y dejar el input menos usable.
+- El frontend enviaba demasiado contexto de `snapshot`, memoria y Local Agent al backend.
+- El backend aceptaba `context` con limite de 12,000 caracteres y podia rechazar antes de compactar.
+- El proveedor recibia `details` con historial/contexto demasiado grande para conversaciones largas.
+
+Ajuste UI aplicado:
+
+- `apps/frontend/src/index.css` reserva un ancho real para la columna derecha: `minmax(520px, 640px)` en desktop.
+- `.director-panel` queda con `min-width: 520px` y sin overflow exterior.
+- `.chat-panel` usa filas estables y mantiene el log como zona interna desplazable.
+- `.director-feed` y `.chat-log` usan `overflow: auto`, `overscroll-behavior: contain` y `scrollbar-gutter: stable`.
+- En mobile, `.mobile-director-inline .chat-panel` mantiene altura controlada, input visible y scroll interno.
+
+Ajuste payload aplicado:
+
+- `apps/frontend/src/HumanCabinV5.jsx` ya no serializa el snapshot completo para el chat.
+- Nuevo limite frontend de contexto: `CHAT_CONTEXT_MAX_CHARS=3600`.
+- Listas enviadas desde Human Cabin se compactan a 5 elementos y textos cortos.
+- Memoria y Local Agent se resumen antes de enviarse al backend.
+- `apps/backend/app/api/routes/chat.py` permite recibir contexto bruto hasta `200000` caracteres para no fallar antes de compactar.
+- El backend compacta contexto a `3200` caracteres, historial a `1800` y `details` final a `5600`.
+- `apps/backend/app/services/creator_service.py` limita el objetivo enviado al proveedor a `5200`, detalles a `2200` y memoria de prompt a `1200`.
+- La respuesta incluye `context_compacted` y `provider_payload_chars` para evidenciar la compactacion.
+
+Validacion local de payload:
+
+- Contexto de prueba enviado: 192,380 caracteres.
+- `POST /api/chat`: 200.
+- `context_compacted`: true.
+- `provider_payload_chars`: 4,900.
+- Error de limite 12,000 caracteres: NO reproducido.
+- Respuesta inicia con aviso controlado de compactacion.
+
+Validacion local de foco comercial:
+
+Sesion: `local-spa-validation-2`
+
+1. `FORJA, crea una propuesta para un spa en Cusco.`
+   - `status`: 200
+   - `reply_source`: `commercial_fallback`
+   - Menciona spa: SI
+   - Mezcla agencia de viajes: NO
+
+2. `Hazlo mas simple y dime que hago primero.`
+   - `status`: 200
+   - `reply_source`: `commercial_fallback`
+   - Mantiene spa en Cusco: SI
+   - Mezcla agencia de viajes: NO
+
+3. `Convierte esto en un entregable para cliente.`
+   - `status`: 200
+   - `reply_source`: `commercial_guardrail`
+   - Mantiene spa en Cusco por historial: SI
+   - Mezcla agencia de viajes: NO
+
+Validacion visual local:
+
+- Desktop `1440x900`, URL local `http://127.0.0.1:5181/?chatPanelPayloadFix=local`
+  - Human Cabin visible: SI
+  - Panel derecho visible: SI
+  - Ancho panel derecho: 640px
+  - Chat log con scroll interno: SI
+  - Input visible: SI
+  - Overflow horizontal: NO
+  - Console errors: 0
+
+- Mobile `390x844`, URL local `http://127.0.0.1:5181/?chatPanelPayloadFix=mobile`
+  - Chat mobile visible: SI
+  - Panel desktop oculto: SI
+  - Chat log con scroll interno: SI
+  - Input visible: SI
+  - Overflow horizontal: NO
+  - Console errors: 0
+
+Validacion Local Agent:
+
+- `GET https://forja-core.onrender.com/local-agent/dashboard`
+- `agents.total`: 1
+- `agents.online`: 1
+- `agents.offline`: 0
+- Heartbeat verificado: `2026-06-04T22:26:35.752319+00:00`
+- `tasks.total`: 3
+- `tasks.completed`: 3
+- Registry persistente: SI
+- Tareas persistentes: SI
+
+Validaciones tecnicas locales:
+
+- `python -m compileall apps\backend\app -q`: PASS
+- `python -m pytest apps\backend\tests\test_operational_backend.py apps\backend\tests\test_local_agent_v1.py -q`: PASS, 34 passed
+- `npm run build` en `apps/frontend`: PASS
+
 ## Evidencia del incidente original
 
 Produccion antes del fix:

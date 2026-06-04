@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import json
 
 from fastapi.testclient import TestClient
 
@@ -210,6 +211,47 @@ def test_api_chat_compatibility_uses_creator_console_real_chat(monkeypatch) -> N
     assert fake_engine.payloads[0]["provider_id"] == "openrouter"
     assert fake_engine.payloads[0]["read_only_chat"] is True
     assert fake_engine.payloads[0]["max_tokens"] == 1800
+
+
+def test_api_chat_compacts_context_above_legacy_12000_limit(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine("Propuesta para spa en Cusco lista y accionable.")
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+    long_context = {
+        "globalStatus": "OPERATIONAL",
+        "directorLines": [
+            {"label": "Linea", "status": "READY", "text": "contexto repetido " * 120}
+            for _ in range(12)
+        ],
+        "snapshot": {
+            "metrics": [{"label": "Apps", "value": "12", "status": "READY", "detail": "detalle " * 200}],
+            "constructionQueue": [{"app": "FORJA", "task": "tarea " * 200, "status": "READY"} for _ in range(20)],
+            "approvals": [{"title": "aprobacion " * 120, "status": "PENDING"} for _ in range(20)],
+            "blockers": [{"title": "bloqueo " * 120, "cause": "causa " * 120} for _ in range(20)],
+            "deliveries": [{"name": "entrega " * 120, "path": "ruta " * 120} for _ in range(20)],
+            "flow": [{"stage": "FLOW", "detail": "detalle " * 120} for _ in range(20)],
+            "memory": {"registered_apps": ["FORJA"] * 100, "active_apps": ["FORJA"] * 100},
+            "localAgent": {"latest_results": [{"title": "resultado " * 120} for _ in range(20)]},
+        },
+    }
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "FORJA, crea una propuesta para un spa en Cusco.",
+            "app": "FORJA",
+            "context": json.dumps(long_context),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["context_compacted"] is True
+    assert payload["provider_payload_chars"] <= 5600
+    assert payload["reply"].startswith("Tu solicitud trae demasiado contexto.")
+    assert "spa en Cusco" in payload["reply"]
+    assert "turistas que estan comparando" not in payload["reply"]
+    assert "agencia de viajes" not in payload["reply"].lower()
+    assert len(fake_engine.payloads[0]["objective"]) <= 5200
 
 
 def test_api_chat_marketing_focus_does_not_inject_ecosystem_memory(monkeypatch) -> None:

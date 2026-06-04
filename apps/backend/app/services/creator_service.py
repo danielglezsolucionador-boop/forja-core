@@ -39,6 +39,9 @@ REAL_CHAT_MIN_TOKENS = 1200
 REAL_CHAT_MAX_TOKENS_CAP = 2500
 REAL_CHAT_TIMEOUT_SECONDS = 45
 REAL_CHAT_RATE_LIMIT_MAX_REQUESTS = 12
+REAL_CHAT_OBJECTIVE_MAX_CHARS = 5200
+REAL_CHAT_DETAILS_MAX_CHARS = 2200
+REAL_CHAT_MEMORY_CONTEXT_MAX_CHARS = 1200
 COMMERCIAL_REQUEST_MARKERS = [
     "agencia",
     "anuncio",
@@ -1189,12 +1192,15 @@ class CreatorService:
 
     def _real_chat_objective(self, payload: dict, memory_snapshot: dict | None = None) -> str:
         command = " ".join(str(payload.get("command", "")).split())
-        details = " ".join(str(payload.get("details", "")).split())
+        details = self._compact_provider_text(payload.get("details", ""), REAL_CHAT_DETAILS_MAX_CHARS)
         focus = self._real_chat_focus(command, details)
         if focus == "commercial":
             return self._commercial_real_chat_objective(command, details)
 
-        memory_context = self._ecosystem_memory.prompt_context(memory_snapshot)
+        memory_context = self._compact_provider_text(
+            self._ecosystem_memory.prompt_context(memory_snapshot),
+            REAL_CHAT_MEMORY_CONTEXT_MAX_CHARS,
+        )
         objective = (
             "Responde como FORJA, Directora de Construccion del ecosistema. "
             "No eres un chatbot generico: eres el sistema operativo de creacion, contenido y entregables del CEO. "
@@ -1208,7 +1214,7 @@ class CreatorService:
             f"Contexto de Human Cabin e historial reciente: {details}\n"
             f"{memory_context}"
         )
-        return objective[:6000]
+        return self._compact_provider_text(objective, REAL_CHAT_OBJECTIVE_MAX_CHARS)
 
     def _real_chat_focus(self, command: str, details: str) -> str:
         command_text = self._normalize_chat_text(command)
@@ -1241,7 +1247,7 @@ class CreatorService:
             f"Solicitud del CEO: {command}\n"
             f"Contexto comercial permitido: {context}"
         )
-        return objective[:6000]
+        return self._compact_provider_text(objective, REAL_CHAT_OBJECTIVE_MAX_CHARS)
 
     def _commercial_context(self, details: str) -> str:
         lines = [line.strip() for line in str(details or "").splitlines() if line.strip()]
@@ -1262,6 +1268,12 @@ class CreatorService:
     def _normalize_chat_text(self, value: str) -> str:
         folded = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode("ascii")
         return " ".join(folded.lower().split())
+
+    def _compact_provider_text(self, value: object, max_chars: int) -> str:
+        text = " ".join(str(value or "").split())
+        if len(text) <= max_chars:
+            return text
+        return f"{text[: max_chars - 3].rstrip()}..."
 
     def _real_chat_max_tokens(self) -> int:
         raw = os.environ.get("FORJA_OPENROUTER_MAX_TOKENS", os.environ.get("OPENROUTER_MAX_TOKENS", "")).strip()

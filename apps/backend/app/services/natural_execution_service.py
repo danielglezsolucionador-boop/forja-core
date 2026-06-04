@@ -138,14 +138,14 @@ class NaturalExecutionService:
                     or self._is_low_value_commercial_reply(provider_reply)
                     or not self._commercial_reply_is_complete(clean_message, provider_reply)
                 ):
-                    reply = self._commercial_reply(clean_message)
+                    reply = self._commercial_reply(clean_message, session_id)
                     reply_source = "commercial_guardrail"
                 else:
                     reply = provider_reply
                     reply_source = "openrouter"
             elif self._provider_was_called(openrouter_record):
                 if commercial_context:
-                    reply = self._commercial_reply(clean_message)
+                    reply = self._commercial_reply(clean_message, session_id)
                     reply_source = "commercial_fallback"
                 else:
                     reply = self._provider_degraded_reply(openrouter_record, provider_state)
@@ -266,32 +266,110 @@ class NaturalExecutionService:
             )
         return "CEO, recibido. Puedo convertir tu idea en tarea, guardarla como entrega o pedirte los datos minimos para construirla sin inventar."
 
-    def _commercial_reply(self, message: str) -> str:
+    def _commercial_reply(self, message: str, session_id: str | None = None) -> str:
+        profile = self._commercial_profile(message, session_id)
         normalized = self._normalize(message)
         if "no entendi" in normalized or "explicamelo" in normalized or "mas simple" in normalized:
             return (
-                "Claro. Primero define una sola oferta para el cliente: que vendes, a quien se lo vendes y que accion quieres que haga.\n\n"
-                "Lo primero que haria ahora es escribir una frase simple de la campana: "
-                "'Durante 7 dias mostraremos una experiencia concreta y cerraremos cada pieza con una invitacion directa a reservar o pedir informacion.'"
+                f"Claro. Para {profile['subject']}, lo primero es elegir una sola oferta y una sola accion.\n\n"
+                f"Lo primero que haria ahora es escribir esta frase y usarla como base de la campana: '{profile['simple_offer']}'."
             )
         return (
-            "Titulo: Campana de 7 dias para captar turistas\n\n"
-            "Objetivo: atraer consultas calificadas y convertir interes en reservas o reuniones comerciales.\n\n"
-            "Publico objetivo: turistas que estan comparando experiencias, paquetes o actividades y necesitan una razon clara para decidir ahora.\n\n"
-            "Estrategia: combinar inspiracion, prueba social y oferta directa. Cada dia debe mover al cliente un paso: descubrir, confiar, preguntar y reservar.\n\n"
-            "Acciones: definir una experiencia principal, elegir una foto o video fuerte, escribir un mensaje claro, publicar una pieza diaria y responder cada consulta con una invitacion directa.\n\n"
+            f"Titulo: {profile['title']}\n\n"
+            f"Objetivo: {profile['objective']}\n\n"
+            f"Publico objetivo: {profile['audience']}\n\n"
+            f"Estrategia: {profile['strategy']}\n\n"
+            f"Acciones: {profile['actions']}\n\n"
             "Calendario de 7 dias:\n"
-            "1. Presentar la experiencia principal con una promesa clara.\n"
-            "2. Mostrar el problema que resuelve: ahorrar tiempo, evitar incertidumbre y vivir una experiencia mejor guiada.\n"
-            "3. Publicar prueba social: testimonio, caso, foto real o historia de cliente.\n"
-            "4. Comparar opciones y explicar por que esta propuesta es mas simple y segura.\n"
-            "5. Responder preguntas frecuentes sobre precio, horarios, seguridad y disponibilidad.\n"
-            "6. Lanzar una oferta o beneficio por tiempo limitado.\n"
-            "7. Cerrar con recordatorio, urgencia amable y llamada directa a reservar.\n\n"
-            "Ideas de contenido: reel corto, carrusel con itinerario, historia con encuesta, testimonio, checklist de viaje y mensaje directo de reserva.\n\n"
-            "CTA: Escribenos 'CUSCO' y te enviamos disponibilidad y recomendacion personalizada.\n\n"
-            "Siguiente paso: elegir una experiencia concreta y escribir el primer post con una foto fuerte, una promesa simple y el CTA."
+            f"1. {profile['days'][0]}\n"
+            f"2. {profile['days'][1]}\n"
+            f"3. {profile['days'][2]}\n"
+            f"4. {profile['days'][3]}\n"
+            f"5. {profile['days'][4]}\n"
+            f"6. {profile['days'][5]}\n"
+            f"7. {profile['days'][6]}\n\n"
+            f"Ideas de contenido: {profile['content_ideas']}\n\n"
+            f"CTA: {profile['cta']}\n\n"
+            f"Siguiente paso: {profile['next_step']}"
         )
+
+    def _commercial_profile(self, message: str, session_id: str | None = None) -> dict:
+        source = message
+        normalized_message = self._normalize(message)
+        has_explicit_domain = any(
+            marker in normalized_message
+            for marker in ["spa", "bienestar", "masaje", "agencia", "viaje", "viajes", "turismo", "turista"]
+        )
+        if session_id and (self._is_simplification_request(message) or not has_explicit_domain):
+            entries = [entry for entry in self._conversation_store.read([]) if entry.get("session_id") == session_id]
+            recent = " ".join(f"{entry.get('user_message', '')} {entry.get('forja_reply', '')}" for entry in entries[-4:])
+            source = f"{recent} {message}"
+        normalized = self._normalize(source)
+        if "spa" in normalized or "bienestar" in normalized or "masaje" in normalized:
+            return {
+                "subject": "el spa en Cusco",
+                "title": "Propuesta de 7 dias para posicionar un spa en Cusco",
+                "objective": "atraer reservas calificadas mostrando descanso, bienestar y una experiencia confiable.",
+                "audience": "personas en Cusco o visitantes que buscan relajacion, masaje, desconexion y cuidado personal.",
+                "strategy": "vender una experiencia de bienestar concreta, no una lista de servicios. Cada pieza debe transmitir calma, confianza y facilidad para reservar.",
+                "actions": "definir el servicio estrella, preparar una oferta simple, mostrar el ambiente real, publicar prueba social y responder consultas con un enlace o mensaje directo de reserva.",
+                "days": [
+                    "Presentar el servicio estrella con una promesa clara de descanso.",
+                    "Mostrar el ambiente del spa y explicar que incluye la experiencia.",
+                    "Publicar testimonio, reseña o antes/despues emocional del cliente.",
+                    "Resolver dudas frecuentes: duracion, precio, ubicacion, horarios y reserva.",
+                    "Crear una pieza educativa: beneficios de un masaje o ritual de relajacion.",
+                    "Lanzar una oferta limitada para primeras reservas de la semana.",
+                    "Cerrar con recordatorio amable y llamada directa a reservar.",
+                ],
+                "content_ideas": "video corto del ambiente, carrusel de beneficios, historia con encuesta de estres, testimonio, foto del espacio y oferta semanal.",
+                "cta": "Escribenos 'SPA CUSCO' y te enviamos horarios disponibles.",
+                "next_step": "elige un servicio estrella y escribe el primer post con una foto real, una promesa simple y el CTA.",
+                "simple_offer": "Durante 7 dias mostraremos una experiencia de relajacion en Cusco y cerraremos cada pieza invitando a reservar por mensaje.",
+            }
+        if any(marker in normalized for marker in ["agencia", "viaje", "viajes", "turismo", "turista"]):
+            return {
+                "subject": "la agencia de viajes",
+                "title": "Campana de 7 dias para captar turistas",
+                "objective": "atraer consultas calificadas y convertir interes en reservas o reuniones comerciales.",
+                "audience": "turistas que estan comparando experiencias, paquetes o actividades y necesitan una razon clara para decidir ahora.",
+                "strategy": "combinar inspiracion, prueba social y oferta directa. Cada dia debe mover al cliente un paso: descubrir, confiar, preguntar y reservar.",
+                "actions": "definir una experiencia principal, elegir una foto o video fuerte, escribir un mensaje claro, publicar una pieza diaria y responder cada consulta con una invitacion directa.",
+                "days": [
+                    "Presentar la experiencia principal con una promesa clara.",
+                    "Mostrar el problema que resuelve: ahorrar tiempo, evitar incertidumbre y vivir una experiencia mejor guiada.",
+                    "Publicar prueba social: testimonio, caso, foto real o historia de cliente.",
+                    "Comparar opciones y explicar por que esta propuesta es mas simple y segura.",
+                    "Responder preguntas frecuentes sobre precio, horarios, seguridad y disponibilidad.",
+                    "Lanzar una oferta o beneficio por tiempo limitado.",
+                    "Cerrar con recordatorio, urgencia amable y llamada directa a reservar.",
+                ],
+                "content_ideas": "reel corto, carrusel con itinerario, historia con encuesta, testimonio, checklist de viaje y mensaje directo de reserva.",
+                "cta": "Escribenos 'CUSCO' y te enviamos disponibilidad y recomendacion personalizada.",
+                "next_step": "elegir una experiencia concreta y escribir el primer post con una foto fuerte, una promesa simple y el CTA.",
+                "simple_offer": "Durante 7 dias mostraremos una experiencia concreta y cerraremos cada pieza con una invitacion directa a reservar o pedir informacion.",
+            }
+        return {
+            "subject": "la propuesta comercial",
+            "title": "Propuesta comercial de 7 dias",
+            "objective": "convertir una idea en una oferta clara, comprensible y facil de ejecutar.",
+            "audience": "clientes potenciales que necesitan entender rapido el valor y saber cual es el siguiente paso.",
+            "strategy": "explicar el problema, mostrar la solucion, demostrar confianza y cerrar con una accion concreta.",
+            "actions": "definir oferta, preparar mensaje principal, crear piezas de contenido, responder dudas y medir consultas.",
+            "days": [
+                "Presentar la oferta con una promesa clara.",
+                "Explicar el problema que resuelve.",
+                "Mostrar prueba social o evidencia.",
+                "Resolver dudas frecuentes.",
+                "Comparar la solucion con la alternativa actual.",
+                "Ofrecer un incentivo limitado.",
+                "Cerrar con llamada directa a tomar accion.",
+            ],
+            "content_ideas": "post principal, carrusel de beneficios, video corto, testimonio, historia con encuesta y mensaje directo.",
+            "cta": "Escribenos y te enviamos la propuesta.",
+            "next_step": "escribir una frase de oferta simple y preparar la primera pieza.",
+            "simple_offer": "Durante 7 dias explicaremos una oferta concreta y cerraremos cada pieza con una invitacion directa a pedir informacion.",
+        }
 
     def _recovery_review_reply(self) -> str:
         return (

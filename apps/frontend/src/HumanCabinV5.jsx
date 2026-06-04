@@ -43,6 +43,9 @@ const promptExamples = [
 const CHAT_SESSION_ID = "ceo-human-cabin";
 const CHAT_SESSION_STORAGE_KEY = "forja_human_cabin_session_id_v1";
 const CHAT_STORAGE_KEY = "forja_human_cabin_chat_v1";
+const CHAT_CONTEXT_MAX_CHARS = 3600;
+const CHAT_CONTEXT_TEXT_MAX_CHARS = 220;
+const CHAT_CONTEXT_LIST_LIMIT = 5;
 const DEFAULT_CHAT_MESSAGES = [
   { role: "forja", text: "CEO, aqui FORJA. Estoy lista para ordenar la obra, leer memoria real y enviar trabajo al Local Agent." },
 ];
@@ -135,6 +138,85 @@ function nextKnownStep(flow) {
   const actionable = (flow || []).find((item) => normalizedStatus(item.status) !== "COMPLETED");
   if (!actionable || normalizedStatus(actionable.status) === "UNKNOWN") return NO_DATA;
   return `${actionable.stage}: ${actionable.detail || actionable.status}`;
+}
+
+function compactText(value, maxChars = CHAT_CONTEXT_TEXT_MAX_CHARS) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars - 3).trim()}...`;
+}
+
+function compactList(items, mapper, limit = CHAT_CONTEXT_LIST_LIMIT) {
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, limit).map(mapper);
+}
+
+function compactMetric(metric) {
+  return {
+    label: compactText(metric?.label, 90),
+    value: compactText(metric?.value, 80),
+    status: compactText(metric?.status, 60),
+    detail: compactText(metric?.detail, 160),
+  };
+}
+
+function compactRuntimeItem(item) {
+  return {
+    id: compactText(item?.id || item?.task_id || item?.name || item?.app || item?.stage, 90),
+    app: compactText(item?.app || item?.name || item?.stage, 90),
+    title: compactText(item?.title || item?.task || item?.event || item?.name, 180),
+    status: compactText(item?.status || item?.severity || item?.risk, 70),
+    detail: compactText(item?.detail || item?.cause || item?.result || item?.nextAction || item?.path || item?.impact, 240),
+  };
+}
+
+function compactMemory(memory = {}) {
+  return {
+    connected: Boolean(memory.connected),
+    primary_source: compactText(memory.primary_source, 160),
+    registered_apps: compactList(memory.registered_apps, (app) => compactText(app, 80), 14),
+    active_apps: compactList(memory.active_apps, (app) => compactText(app, 80), 14),
+    apps_missing_from_primary_memory: compactList(memory.apps_missing_from_primary_memory, (app) => compactText(app, 80), 10),
+  };
+}
+
+function compactLocalAgent(localAgent = {}) {
+  return {
+    agents: localAgent.agents || {},
+    tasks: localAgent.tasks || {},
+    latest_results: compactList(localAgent.latest_results, compactRuntimeItem, 4),
+    critical_approvals: compactList(localAgent.critical_approvals, compactRuntimeItem, 4),
+    recent_activity: compactList(localAgent.recent_activity, compactRuntimeItem, 5),
+  };
+}
+
+function finalCompactPayload(payload) {
+  return {
+    compacted: true,
+    reason: "human_cabin_context_budget",
+    globalStatus: payload.globalStatus,
+    directorLines: compactList(payload.directorLines, (line) => ({
+      label: compactText(line.label, 80),
+      status: compactText(line.status, 60),
+      text: compactText(line.text, 180),
+    }), 4),
+    snapshot: {
+      metrics: compactList(payload.snapshot.metrics, compactMetric, 6),
+      memory: payload.snapshot.memory,
+      localAgent: {
+        agents: payload.snapshot.localAgent.agents,
+        tasks: payload.snapshot.localAgent.tasks,
+      },
+      blockers: compactList(payload.snapshot.blockers, compactRuntimeItem, 3),
+      deliveries: compactList(payload.snapshot.deliveries, compactRuntimeItem, 3),
+    },
+  };
+}
+
+function stringifyContext(payload) {
+  const serialized = JSON.stringify(payload);
+  if (serialized.length <= CHAT_CONTEXT_MAX_CHARS) return serialized;
+  return JSON.stringify(finalCompactPayload(payload)).slice(0, CHAT_CONTEXT_MAX_CHARS);
 }
 
 function buildDirectorLines(snapshot, runtime) {
@@ -556,23 +638,27 @@ function ChatForja({ snapshot, lines }) {
   }, [conversationId]);
 
   function contextPayload() {
-    return JSON.stringify({
+    const payload = {
+      compacted: true,
+      source: "human_cabin_v5_compact_context",
       globalStatus: normalizedStatus(lines.find((line) => line.key === "status")?.status),
       directorLines: lines.map((line) => ({
         label: line.label,
         status: line.status,
-        text: line.text,
+        text: compactText(line.text, 220),
       })),
       snapshot: {
-        constructionQueue: snapshot.constructionQueue || [],
-        approvals: snapshot.approvals || [],
-        blockers: snapshot.blockers || [],
-        deliveries: snapshot.deliveries || [],
-        flow: snapshot.flow || [],
-        memory: snapshot.memory || {},
-        localAgent: snapshot.localAgent || {},
+        metrics: compactList(snapshot.metrics, compactMetric, 8),
+        constructionQueue: compactList(snapshot.constructionQueue, compactRuntimeItem),
+        approvals: compactList(snapshot.approvals, compactRuntimeItem),
+        blockers: compactList(snapshot.blockers, compactRuntimeItem),
+        deliveries: compactList(snapshot.deliveries, compactRuntimeItem),
+        flow: compactList(snapshot.flow, compactRuntimeItem, 6),
+        memory: compactMemory(snapshot.memory),
+        localAgent: compactLocalAgent(snapshot.localAgent),
       },
-    });
+    };
+    return stringifyContext(payload);
   }
 
   function replyFromPayload(data) {
