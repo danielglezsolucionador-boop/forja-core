@@ -279,6 +279,7 @@ class NaturalExecutionService:
             "Objetivo: atraer consultas calificadas y convertir interes en reservas o reuniones comerciales.\n\n"
             "Publico objetivo: turistas que estan comparando experiencias, paquetes o actividades y necesitan una razon clara para decidir ahora.\n\n"
             "Estrategia: combinar inspiracion, prueba social y oferta directa. Cada dia debe mover al cliente un paso: descubrir, confiar, preguntar y reservar.\n\n"
+            "Acciones: definir una experiencia principal, elegir una foto o video fuerte, escribir un mensaje claro, publicar una pieza diaria y responder cada consulta con una invitacion directa.\n\n"
             "Calendario de 7 dias:\n"
             "1. Presentar la experiencia principal con una promesa clara.\n"
             "2. Mostrar el problema que resuelve: ahorrar tiempo, evitar incertidumbre y vivir una experiencia mejor guiada.\n"

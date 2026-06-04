@@ -94,6 +94,10 @@ Fallo de foco detectado en segunda validacion final:
 - Correccion: en contexto comercial, `FORJA` tambien se trata como termino interno si aparece en la respuesta del proveedor.
 - Test agregado: `test_api_chat_simplification_keeps_commercial_client_focus`.
 
+Ajuste final de estructura:
+
+- El fallback comercial ahora incluye seccion explicita `Acciones:` para cumplir entregables formales de cliente.
+
 ### Local Agent produccion
 
 Estado antes:

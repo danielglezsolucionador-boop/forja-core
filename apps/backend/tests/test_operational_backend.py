@@ -300,7 +300,7 @@ def test_api_chat_marketing_guardrail_requires_complete_client_deliverable(monke
     assert response.status_code == 200
     payload = response.json()
     assert payload["reply_source"] == "commercial_guardrail"
-    for expected in ["Titulo:", "Objetivo:", "Publico objetivo:", "Estrategia:", "Calendario de 7 dias:", "CTA:", "Siguiente paso:"]:
+    for expected in ["Titulo:", "Objetivo:", "Publico objetivo:", "Estrategia:", "Acciones:", "Calendario de 7 dias:", "CTA:", "Siguiente paso:"]:
         assert expected in payload["reply"]
 
 
