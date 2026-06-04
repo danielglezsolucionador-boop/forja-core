@@ -98,6 +98,65 @@ Ajuste final de estructura:
 
 - El fallback comercial ahora incluye seccion explicita `Acciones:` para cumplir entregables formales de cliente.
 
+### Validacion final en produccion
+
+Commit funcional final validado: `fc7a65f`
+
+Sesion de chat: `forja-focus-final5-1780595867`
+
+Prompts obligatorios:
+
+1. `FORJA, necesito crear una propuesta de contenido para una agencia de viajes en Cusco. Dame estructura, ideas, calendario y primer paso.`
+   - `status`: ok
+   - `openrouter_status`: completed
+   - `reply_source`: commercial_guardrail
+   - Resultado: completo, sin terminos internos, no low-value.
+
+2. `No entendi. Explicamelo mas simple y dime exactamente que hago primero.`
+   - `status`: ok
+   - `openrouter_status`: completed
+   - `reply_source`: openrouter
+   - Resultado: simple, accionable, sin FORJA/CEREBRO/Local Agent/OpenRouter.
+
+3. `Convierte esta idea en un entregable para cliente: campana de 7 dias para captar turistas.`
+   - `status`: ok
+   - `openrouter_status`: completed
+   - `reply_source`: openrouter
+   - Resultado: completo, incluye titulo, objetivo, publico, estrategia, calendario, CTA y siguiente paso.
+
+4. `Estamos recuperando FORJA porque respondia mal. Que estamos revisando ahora?`
+   - `status`: ok
+   - `openrouter_status`: completed
+   - `reply_source`: internal_guardrail
+   - Resultado: explica foco conversacional, tono, calidad de respuesta y Local Agent.
+
+5. `Hazme un entregable formal para enviar a un cliente, con titulo, objetivo, estrategia, acciones y proximos pasos.`
+   - `status`: ok
+   - `openrouter_status`: completed
+   - `reply_source`: commercial_guardrail
+   - Resultado: completo, incluye acciones explicitas y no mezcla contexto interno.
+
+Validacion Local Agent final:
+
+- Agent ID: `agent-2990f613-3ff9-410a-b5bf-d8857571146c`
+- Produccion visible: `agents.total=1`, `agents.online=1`
+- Runner local: `python tools\forja_local_agent.py --config D:\ECOSYSTEM\FORJA_LOCAL_AGENT\forja-local-agent-production.config.json --interval 15`
+- Task ID: `task-49f4ef39-abdb-471f-84a1-d035496da408`
+- Estado final: `completed`
+- Snapshot: 1
+- Backup: 1
+- Rollback: SI
+- Artifacts: `ECOSYSTEM_APPS_REPORT.md`, `TASK_REPORT.md`
+- Dashboard: `deliveries[0].status=COMPLETED`
+- Archivo visible: `D:\ECOSYSTEM\DELIVERIES\FORJA\ECOSYSTEM_APPS_REPORT.md`
+
+Validaciones tecnicas finales:
+
+- `python -m compileall apps\backend\app tools -q`: PASS
+- `python -m pytest apps\backend\tests -q`: PASS, 257 passed
+- `npm run build` en `apps/frontend`: PASS
+- Secret scan del diff staged: PASS
+
 ### Local Agent produccion
 
 Estado antes:
