@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import httpx
+
 from app.core.storage import JsonStore
 from app.services.provider_connector_service import ProviderConnectorLayer
 from app.services.real_provider_execution_service import HTTPRealProviderTransport, RealProviderExecutionEngine, RealProviderTransportError
@@ -253,3 +255,42 @@ def test_openrouter_transport_uses_forja_key_alias(monkeypatch) -> None:
     assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
     assert captured["headers"]["Authorization"].startswith("Bearer ")
     assert result["text"] == "OpenRouter alias response."
+
+
+def test_openrouter_transport_falls_back_to_free_router_on_credit_limit(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-openrouter-http-transport-test")
+    monkeypatch.setenv("FORJA_OPENROUTER_MODEL", "openai/gpt-4o-mini")
+
+    class Response:
+        def __init__(self, url: str, payload: dict) -> None:
+            self.url = url
+            self.payload = payload
+            self.status_code = 200
+            self.text = ""
+
+        def raise_for_status(self) -> None:
+            if self.payload["model"] == "openai/gpt-4o-mini":
+                response = httpx.Response(
+                    402,
+                    text='{"error":{"message":"This request requires more credits, or fewer max_tokens."}}',
+                    request=httpx.Request("POST", self.url),
+                )
+                raise httpx.HTTPStatusError("402", request=response.request, response=response)
+
+        def json(self) -> dict:
+            return {
+                "model": self.payload["model"],
+                "choices": [{"message": {"content": "OpenRouter free router response."}}],
+                "usage": {"total_tokens": 25},
+            }
+
+    def fake_post(url: str, *, headers: dict, json: dict, timeout: int) -> Response:
+        calls.append(json["model"])
+        return Response(url, json)
+
+    monkeypatch.setattr("app.services.real_provider_execution_service.httpx.post", fake_post)
+    result = HTTPRealProviderTransport().execute("openrouter", "short governed prompt", 1800, 45)
+    assert calls == ["openai/gpt-4o-mini", "openrouter/free"]
+    assert result["model"] == "openrouter/free"
+    assert result["text"] == "OpenRouter free router response."

@@ -121,8 +121,10 @@ class HTTPRealProviderTransport:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code
-            if provider_id == "openrouter" and status_code in {400, 404, 422} and config["model"] != "openai/gpt-4o-mini":
-                payload["model"] = "openai/gpt-4o-mini"
+            retry_error = exc
+            retry_succeeded = False
+            for retry_model in self._openrouter_retry_models(provider_id, status_code, config["model"]):
+                payload["model"] = retry_model
                 try:
                     response = httpx.post(
                         f"{config['base_url'].rstrip('/')}/chat/completions",
@@ -131,20 +133,21 @@ class HTTPRealProviderTransport:
                         timeout=timeout_seconds,
                     )
                     response.raise_for_status()
+                    retry_succeeded = True
+                    break
                 except httpx.TimeoutException as retry_exc:
                     raise RealProviderTransportError("provider_timeout", "timeout") from retry_exc
                 except httpx.HTTPStatusError as retry_exc:
-                    raise RealProviderTransportError(
-                        self._http_status_reason(retry_exc.response.status_code, retry_exc.response.text),
-                        "provider_failure_detected",
-                    ) from retry_exc
+                    retry_error = retry_exc
+                    if retry_exc.response.status_code in {401, 403}:
+                        break
                 except httpx.HTTPError as retry_exc:
                     raise RealProviderTransportError("provider_http_error", "provider_failure_detected") from retry_exc
-            else:
+            if not retry_succeeded:
                 raise RealProviderTransportError(
-                    self._http_status_reason(status_code, exc.response.text),
+                    self._http_status_reason(retry_error.response.status_code, retry_error.response.text),
                     "provider_failure_detected",
-                ) from exc
+                ) from retry_error
         except httpx.TimeoutException as exc:
             raise RealProviderTransportError("provider_timeout", "timeout") from exc
         except httpx.HTTPError as exc:
@@ -168,6 +171,18 @@ class HTTPRealProviderTransport:
         compact = re.sub(r"sk-or-[A-Za-z0-9._-]+", "sk-or-REDACTED", compact)
         compact = re.sub(r"sk-[A-Za-z0-9._-]+", "sk-REDACTED", compact)
         return compact[:180]
+
+    def _openrouter_retry_models(self, provider_id: str, status_code: int | None, current_model: str) -> list[str]:
+        if provider_id != "openrouter":
+            return []
+        retry_models: list[str] = []
+        quality_fallback = "openai/gpt-4o-mini"
+        free_fallback = os.environ.get("FORJA_OPENROUTER_FALLBACK_MODEL", "openrouter/free").strip() or "openrouter/free"
+        if status_code in {400, 404, 422} and current_model != quality_fallback:
+            retry_models.append(quality_fallback)
+        if status_code == 402 or status_code in {400, 404, 422}:
+            retry_models.append(free_fallback)
+        return [model for index, model in enumerate(retry_models) if model and model != current_model and model not in retry_models[:index]]
 
     def _openai_compatible_config(self, provider_id: str) -> dict:
         if provider_id == "deepseek":
