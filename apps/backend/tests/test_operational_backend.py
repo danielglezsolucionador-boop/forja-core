@@ -36,6 +36,19 @@ class FakeCreatorChatEngine:
         }
 
 
+class QueuedFakeCreatorChatEngine(FakeCreatorChatEngine):
+    def __init__(self, texts: list[str]) -> None:
+        super().__init__(texts[-1] if texts else "")
+        self.texts = texts
+        self.index = 0
+
+    def execute(self, payload: dict) -> dict:
+        text = self.texts[min(self.index, len(self.texts) - 1)]
+        self.index += 1
+        self.text = text
+        return super().execute(payload)
+
+
 class FakeEcosystemMemory:
     def snapshot(self) -> dict:
         return {
@@ -309,6 +322,38 @@ def test_api_chat_recovery_review_uses_internal_guardrail(monkeypatch) -> None:
     assert "Foco conversacional" in payload["reply"]
     assert "Local Agent" in payload["reply"]
     assert "prompts reales" in payload["reply"]
+
+
+def test_api_chat_simplification_keeps_commercial_client_focus(monkeypatch) -> None:
+    fake_engine = QueuedFakeCreatorChatEngine(
+        [
+            "Titulo: Campana Cusco. Objetivo: captar turistas. Publico: viajeros. Estrategia: contenido. Calendario: dia 1 a dia 7. CTA: Escribenos. Siguiente paso: publicar.",
+            "Objetivo: Posicionar FORJA como aliado estrategico para pymes.",
+        ]
+    )
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+    session_id = "pytest-commercial-simplify-focus"
+
+    first = client.post(
+        "/api/chat",
+        json={
+            "message": "FORJA, necesito crear una propuesta de contenido para una agencia de viajes en Cusco. Dame estructura, ideas, calendario y primer paso.",
+            "app": "FORJA",
+            "session_id": session_id,
+            "context": "validacion marketing",
+        },
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/api/chat",
+        json={"message": "No entendi. Explicamelo mas simple y dime exactamente que hago primero.", "app": "FORJA", "session_id": session_id},
+    )
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["reply_source"] == "commercial_guardrail"
+    assert "FORJA" not in payload["reply"]
+    assert "Lo primero que haria ahora" in payload["reply"]
 
 
 def test_api_chat_uses_safe_token_floor_and_cap(monkeypatch) -> None:

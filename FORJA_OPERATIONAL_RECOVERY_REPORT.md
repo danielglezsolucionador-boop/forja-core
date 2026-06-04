@@ -88,6 +88,12 @@ Correcciones adicionales:
 - `NaturalExecutionService._recovery_review_reply()` da una respuesta interna controlada sobre foco conversacional, tono, calidad y Local Agent.
 - Tests agregados: `test_api_chat_marketing_guardrail_requires_complete_client_deliverable` y `test_api_chat_recovery_review_uses_internal_guardrail`.
 
+Fallo de foco detectado en segunda validacion final:
+
+- En el prompt `No entendi. Explicamelo mas simple y dime exactamente que hago primero.`, OpenRouter podia mantener tono comercial pero desplazar el cliente hacia FORJA.
+- Correccion: en contexto comercial, `FORJA` tambien se trata como termino interno si aparece en la respuesta del proveedor.
+- Test agregado: `test_api_chat_simplification_keeps_commercial_client_focus`.
+
 ### Local Agent produccion
 
 Estado antes:

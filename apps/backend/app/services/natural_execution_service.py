@@ -54,6 +54,7 @@ INTERNAL_LEAK_MARKERS = [
     "cav",
     "cerebro",
     "centinela",
+    "forja",
     "gobierno de forja",
     "local agent",
     "memoria interna",
