@@ -201,7 +201,9 @@ def test_api_chat_compatibility_uses_creator_console_real_chat(monkeypatch) -> N
 
 def test_api_chat_marketing_focus_does_not_inject_ecosystem_memory(monkeypatch) -> None:
     fake_engine = FakeCreatorChatEngine(
-        "Titulo: Propuesta para agencia de viajes. Objetivo: captar turistas. Calendario: 7 dias. CTA: Reserva hoy."
+        "Titulo: Propuesta para agencia de viajes. Objetivo: captar turistas con una campana clara. "
+        "Publico objetivo: viajeros interesados en experiencias memorables. Estrategia: inspiracion, prueba social y oferta. "
+        "Calendario: 7 dias de contenido con CTA diario. Siguiente paso: elegir la experiencia principal y preparar el primer post."
     )
     monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
     monkeypatch.setattr(creator_service, "_ecosystem_memory", FakeEcosystemMemory())
@@ -246,6 +248,27 @@ def test_api_chat_marketing_guardrail_removes_internal_leaks(monkeypatch) -> Non
     assert "OpenRouter" not in payload["reply"]
     assert "Titulo:" in payload["reply"]
     assert "Objetivo:" in payload["reply"]
+    assert "Siguiente paso:" in payload["reply"]
+
+
+def test_api_chat_marketing_guardrail_replaces_low_value_safety_reply(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine("User Safety: safe")
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "FORJA, necesito crear una propuesta de contenido para una agencia de viajes en Cusco. Dame estructura, ideas, calendario y primer paso.",
+            "app": "FORJA",
+            "context": "validacion marketing",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["reply_source"] == "commercial_guardrail"
+    assert payload["reply"] != "User Safety: safe"
+    assert "Titulo:" in payload["reply"]
+    assert "Calendario de 7 dias:" in payload["reply"]
     assert "Siguiente paso:" in payload["reply"]
 
 

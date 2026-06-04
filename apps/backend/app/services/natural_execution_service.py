@@ -129,7 +129,7 @@ class NaturalExecutionService:
         else:
             provider_reply = self._provider_reply(openrouter_record)
             if provider_reply:
-                if commercial_context and self._contains_internal_leak(provider_reply):
+                if commercial_context and (self._contains_internal_leak(provider_reply) or self._is_low_value_commercial_reply(provider_reply)):
                     reply = self._commercial_reply(clean_message)
                     reply_source = "commercial_guardrail"
                 else:
@@ -329,6 +329,13 @@ class NaturalExecutionService:
     def _contains_internal_leak(self, reply: str) -> bool:
         normalized = self._normalize(reply)
         return any(marker in normalized for marker in INTERNAL_LEAK_MARKERS)
+
+    def _is_low_value_commercial_reply(self, reply: str) -> bool:
+        clean = " ".join(str(reply or "").split())
+        normalized = self._normalize(clean)
+        if len(clean) < 220:
+            return True
+        return normalized.startswith("user safety:") or normalized in {"safe", "user safety safe"}
 
     def _is_simplification_request(self, message: str) -> bool:
         normalized = self._normalize(message)

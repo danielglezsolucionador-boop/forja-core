@@ -50,6 +50,7 @@ FORJA ya conversaba, pero el prompt real de chat trataba todas las preguntas com
 - `CreatorService._commercial_real_chat_objective()` crea un prompt especifico para cliente/marketing.
 - En modo comercial se filtra el contexto permitido y no se inyecta memoria interna.
 - `NaturalExecutionService` agrega un guardrail de salida: si una respuesta comercial trae terminos internos, se reemplaza por un entregable limpio.
+- El mismo guardrail bloquea respuestas comerciales demasiado cortas o no utiles, incluyendo el caso productivo `User Safety: safe`.
 - El historial sigue funcionando para el caso `No entendi...` y mantiene el foco comercial si la sesion venia de una peticion comercial.
 
 Prompt obligatorio cubierto por pruebas:
@@ -67,6 +68,14 @@ Validacion esperada:
 - Incluye CTA.
 - Incluye siguiente paso.
 - No muestra arquitectura, memoria interna, CEREBRO, CENTINELA, Local Agent, OpenRouter, provider, runtime ni pipeline en la respuesta comercial.
+
+Fallo encontrado en validacion productiva posterior al primer push:
+
+- Prompt: `FORJA, necesito crear una propuesta de contenido para una agencia de viajes en Cusco. Dame estructura, ideas, calendario y primer paso.`
+- Resultado anterior: `User Safety: safe`
+- Diagnostico: OpenRouter respondio `completed`, pero la respuesta era demasiado corta y no util.
+- Correccion: `NaturalExecutionService._is_low_value_commercial_reply()` fuerza fallback comercial limpio cuando la respuesta no cumple utilidad minima.
+- Test agregado: `test_api_chat_marketing_guardrail_replaces_low_value_safety_reply`
 
 ### Local Agent produccion
 
