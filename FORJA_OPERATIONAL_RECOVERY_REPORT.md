@@ -407,6 +407,14 @@ Fix adicional tras validacion productiva:
 - Validacion local posterior: `python -m pytest apps\backend\tests\test_operational_backend.py apps\backend\tests\test_local_agent_v1.py -q`: PASS, 35 passed.
 - `npm run build` en `apps/frontend`: PASS.
 
+Fix adicional de frontend productivo real:
+
+- Se verifico que `https://forja-frontend.onrender.com` seguia sirviendo assets de `frontend/` (`assets/index-CbEwSm5C.js`, `assets/index-CxygqUnl.css`) y no de `apps/frontend/`.
+- Causa: el servicio productivo `forja-frontend` esta desplegando la copia CRA `frontend/`.
+- Se aplico la misma compactacion de contexto y geometria/scroll en `frontend/src/App.js` y `frontend/src/styles/index.css`.
+- Build real de `frontend/`: PASS con `main.30ce5ff1.js` y `main.d43904f6.css`.
+- No se tocaron CEREBRO, DCFT ni Local Agent.
+
 ## Evidencia del incidente original
 
 Produccion antes del fix:
