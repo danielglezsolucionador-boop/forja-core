@@ -395,6 +395,18 @@ Estado post-push Render:
 - Local Agent productivo sigue operativo: `agents.online=1`, `tasks.completed=3`.
 - No se declara produccion PASS hasta ejecutar o reactivar deploy Render y repetir validacion.
 
+Fix adicional tras validacion productiva:
+
+- Render publico el backend nuevo y `ChatRequest.context.maxLength=200000`.
+- La prueba de payload largo paso en produccion: `status=200`, `context_compacted=true`, `provider_payload_chars=3719`.
+- Se detecto un segundo fallo real: en un hilo de spa, el proveedor podia responder un entregable completo pero desplazado a otro dominio (`Espacios Compactos`, vivienda, home office).
+- Se agrego guardrail de continuidad comercial en `NaturalExecutionService._commercial_reply_matches_context()`.
+- Si la sesion venia de spa, la respuesta debe mantener dominio spa/bienestar/relajacion/masaje y rechazar dominios ajenos.
+- Si la sesion venia de agencia/viajes, la respuesta debe mantener dominio agencia/viaje/turismo/reserva y rechazar dominios ajenos.
+- Test agregado: `test_api_chat_commercial_continuation_rejects_domain_drift`.
+- Validacion local posterior: `python -m pytest apps\backend\tests\test_operational_backend.py apps\backend\tests\test_local_agent_v1.py -q`: PASS, 35 passed.
+- `npm run build` en `apps/frontend`: PASS.
+
 ## Evidencia del incidente original
 
 Produccion antes del fix:

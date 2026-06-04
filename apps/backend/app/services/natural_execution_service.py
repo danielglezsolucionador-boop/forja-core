@@ -137,6 +137,7 @@ class NaturalExecutionService:
                     self._contains_internal_leak(provider_reply)
                     or self._is_low_value_commercial_reply(provider_reply)
                     or not self._commercial_reply_is_complete(clean_message, provider_reply)
+                    or not self._commercial_reply_matches_context(clean_message, provider_reply, session_id)
                 ):
                     reply = self._commercial_reply(clean_message, session_id)
                     reply_source = "commercial_guardrail"
@@ -449,6 +450,30 @@ class NaturalExecutionService:
             ["siguiente paso", "primer paso", "proximos pasos"],
         ]
         return all(any(marker in normalized_reply for marker in group) for group in required_groups)
+
+    def _commercial_reply_matches_context(self, message: str, reply: str, session_id: str | None = None) -> bool:
+        profile = self._commercial_profile(message, session_id)
+        subject = self._normalize(profile.get("subject", ""))
+        normalized_reply = self._normalize(reply)
+        if "spa" in subject:
+            has_spa_domain = any(marker in normalized_reply for marker in ["spa", "bienestar", "relajacion", "masaje", "descanso"])
+            off_domain = any(
+                marker in normalized_reply
+                for marker in [
+                    "agencia de viajes",
+                    "espacios compactos",
+                    "home office",
+                    "minimalista",
+                    "vivienda",
+                    "turistas que estan comparando",
+                ]
+            )
+            return has_spa_domain and not off_domain
+        if "agencia" in subject or "viaje" in subject:
+            has_travel_domain = any(marker in normalized_reply for marker in ["agencia", "viaje", "turismo", "turista", "reserva", "cusco"])
+            off_domain = any(marker in normalized_reply for marker in ["spa", "masaje", "vivienda", "home office", "espacios compactos"])
+            return has_travel_domain and not off_domain
+        return True
 
     def _is_recovery_review_request(self, message: str) -> bool:
         normalized = self._normalize(message)

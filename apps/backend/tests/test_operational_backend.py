@@ -398,6 +398,39 @@ def test_api_chat_simplification_keeps_commercial_client_focus(monkeypatch) -> N
     assert "Lo primero que haria ahora" in payload["reply"]
 
 
+def test_api_chat_commercial_continuation_rejects_domain_drift(monkeypatch) -> None:
+    fake_engine = QueuedFakeCreatorChatEngine(
+        [
+            "Titulo: Propuesta para spa en Cusco. Objetivo: atraer reservas. Publico: visitantes que buscan bienestar. Estrategia: contenido de confianza. Calendario: dia 1 a dia 7. CTA: Reserva. Siguiente paso: publicar.",
+            "Titulo: Descubre el Futuro de los Espacios Compactos. Objetivo: captar leads de vivienda ligera. Publico objetivo: adultos urbanos. Estrategia: mostrar home office minimalista. Calendario: dia 1 a dia 7. CTA: escribenos. Siguiente paso: cotizar.",
+        ]
+    )
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+    session_id = "pytest-commercial-domain-drift"
+
+    first = client.post(
+        "/api/chat",
+        json={
+            "message": "FORJA, crea una propuesta para un spa en Cusco.",
+            "app": "FORJA",
+            "session_id": session_id,
+            "context": "validacion marketing",
+        },
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/api/chat",
+        json={"message": "Convierte esto en un entregable para cliente.", "app": "FORJA", "session_id": session_id},
+    )
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["reply_source"] == "commercial_guardrail"
+    assert "spa en Cusco" in payload["reply"]
+    assert "Espacios Compactos" not in payload["reply"]
+    assert "home office" not in payload["reply"]
+
+
 def test_api_chat_uses_safe_token_floor_and_cap(monkeypatch) -> None:
     monkeypatch.delenv("FORJA_OPENROUTER_MAX_TOKENS", raising=False)
     monkeypatch.delenv("OPENROUTER_MAX_TOKENS", raising=False)
