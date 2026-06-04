@@ -207,6 +207,76 @@ Tarea real ejecutada desde Human Cabin/chat:
 - Tamano local: 3030 bytes
 - Visible en dashboard: SI, `deliveries[0].status=COMPLETED`
 
+## Persistencia real del Agent Registry
+
+Fecha: 2026-06-04 14:59-15:49 America/Lima
+
+Backup previo adicional:
+
+- Ruta: `D:\ECOSYSTEM\BACKUPS\forja-agent-registry-persistence-prechange-20260604-145908.zip`
+- Tamano: 13,845,724 bytes
+- Verificacion: zip abierto correctamente
+- Exclusiones: `.git`, `node_modules`, `build`, `dist`, `__pycache__`, `.env`, `.env.*`, `*secrets*`
+
+Causa corregida:
+
+- El Agent Registry y las tareas vivian en `.forja/state/local_agent_registry.json` y `.forja/state/local_agent_tasks.json`.
+- Ese storage local no es redeploy-safe en Render.
+- Se implemento persistencia PostgreSQL con migracion Alembic `0002_local_agent_persistence.py`.
+
+Estado productivo validado:
+
+- Agent ID persistente: `agent-e52d9cb7-5db6-4839-85ef-581e867aa073`
+- Version del runner: `forja_local_agent_v1.1_persistent`
+- `agents.total`: 1
+- `agents.online`: 1
+- `agents.stale`: 0
+- `agents.offline`: 0
+- `tasks.total`: 3
+- `tasks.completed`: 3
+- `tasks.queued`: 0
+- `deliveries`: 3
+- Heartbeat final verificado: `2026-06-04T20:49:29.771269+00:00`
+- Runner local activo: PID 3708, polling cada 30 segundos
+
+Validacion redeploy-safe:
+
+- Commit funcional: `807c7ce persist forja local agent registry and task state`
+- Commit de redeploy validation: `4791a74 chore: trigger forja agent persistence redeploy validation`
+- Agent ID antes y despues del redeploy: igual
+- `last_registered_at` antes y despues del redeploy: `2026-06-04T20:33:41Z`
+- Re-registro ocurrido tras redeploy: NO
+- Registry persistio tras redeploy: SI
+- Tareas persistieron tras redeploy: SI
+
+Tarea de evidencia persistida:
+
+- Task ID: `task-6975a4cd-e470-47ad-b21d-7a98517b4ea9`
+- Tipo: `report_generation`
+- Estado: `completed`
+- Snapshot: 1
+- Backup: 1
+- Rollback registrado: SI
+- Artifacts: 2
+- Archivo generado: `D:\ECOSYSTEM\DELIVERIES\FORJA\FORJA_AGENT_PERSISTENCE_EVIDENCE.md`
+- Tamano: 3,030 bytes
+
+Validacion Human Cabin:
+
+- URL: `https://forja-frontend.onrender.com/?agentPersistence=20260604`
+- Human Cabin visible: SI
+- Local Agent visible: SI
+- Agente online visible: SI
+- Entregas Local Agent visibles: SI
+- Console errors: 0
+
+Estado final persistente:
+
+- Local Agent persistente: SI
+- Redeploy-safe: SI
+- Produccion real: SI
+- Human Cabin V5 intacta: SI
+
 ## Evidencia del incidente original
 
 Produccion antes del fix:
