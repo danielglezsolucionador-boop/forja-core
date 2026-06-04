@@ -47,6 +47,8 @@ RiskLevel = Literal["low", "medium", "high", "critical"]
 class LocalAgentRegisterIn(BaseModel):
     agent_name: str = Field(min_length=2, max_length=120)
     machine_label: str = Field(min_length=2, max_length=120)
+    machine_id: str | None = Field(default=None, max_length=160)
+    version: str | None = Field(default=None, max_length=80)
     owner: str = Field(default="ceo", max_length=80)
     capability_profile: list[str] = Field(default_factory=list)
     allowed_repositories: list[str] = Field(default_factory=list)
@@ -58,6 +60,8 @@ class LocalAgentRecord(BaseModel):
     agent_id: str
     agent_name: str
     machine_label: str
+    machine_id: str | None = None
+    version: str | None = None
     owner: str
     status: str
     last_seen_at: str | None = None
@@ -66,6 +70,7 @@ class LocalAgentRecord(BaseModel):
     allowed_workspaces: list[str]
     policy_profile: str
     created_at: str
+    updated_at: str | None = None
     revoked_at: str | None = None
     agent_token: str | None = None
 
@@ -105,6 +110,8 @@ class LocalAgentTaskRecord(BaseModel):
     command_logs: list[dict[str, Any]] = Field(default_factory=list)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     result: dict[str, Any] | None = None
+    error: str | None = None
+    completed_at: str | None = None
 
 
 class LocalAgentTaskPollIn(BaseModel):

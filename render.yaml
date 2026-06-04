@@ -39,6 +39,8 @@ services:
         sync: false
       - key: FORJA_CORS_ORIGINS
         sync: false
+      - key: FORJA_LOCAL_AGENT_REGISTRATION_TOKEN
+        sync: false
 
   - type: web
     name: forja-frontend

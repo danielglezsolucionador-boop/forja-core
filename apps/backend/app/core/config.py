@@ -50,6 +50,7 @@ class Settings:
     database_url: str = field(default_factory=lambda: _env("FORJA_DATABASE_URL", ""))
     database_ssl: bool = field(default_factory=lambda: _bool_env("FORJA_DATABASE_SSL", True))
     db_auto_migrate: bool = field(default_factory=lambda: _bool_env("FORJA_DB_AUTO_MIGRATE", False))
+    local_agent_registration_token: str = field(default_factory=lambda: _env("FORJA_LOCAL_AGENT_REGISTRATION_TOKEN", ""))
     base_dir: Path = field(default_factory=lambda: Path(_env("FORJA_BASE_DIR", str(Path(__file__).resolve().parents[4]))))
 
     @property

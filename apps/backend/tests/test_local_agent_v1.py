@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.local_agent_service import LocalAgentPolicyEngine
+from app.services.local_agent_service import LocalAgentPolicyEngine, LocalAgentService
 
 
 client = TestClient(app)
@@ -132,6 +134,81 @@ def test_local_agent_registers_polls_executes_read_task_end_to_end() -> None:
     assert payload["result"]["secrets_exposed"] is False
     assert any(event["event_type"] == "task.snapshot.created" for event in payload["history"])
     assert any(event["event_type"] == "task.completed" for event in payload["history"])
+
+
+def test_local_agent_registry_and_tasks_survive_service_reinstantiation() -> None:
+    service = LocalAgentService()
+    registered = service.register_agent(
+        {
+            "agent_name": "FORJA Persistent Agent Test",
+            "machine_label": "persistent-test-pc",
+            "machine_id": "persistent-test-pc",
+            "version": "test",
+            "owner": "ceo",
+            "capability_profile": ["repo_read", "snapshot_create", "memory_read", "artifact_upload"],
+            "allowed_repositories": ["forja"],
+            "allowed_workspaces": ["ecosystem"],
+            "policy_profile": "default",
+        }
+    )
+    task = service.create_task(
+        {
+            "instruction": "Leer estado persistente del agente",
+            "title": "Persistencia local agent",
+            "requested_by": "ceo",
+            "target": {"workspace_id": "ecosystem", "repo_ids": ["forja"], "paths": []},
+        }
+    )
+
+    restarted = LocalAgentService()
+    authenticated = restarted.authenticate_agent(registered["agent_id"], registered["agent_token"])
+
+    assert authenticated["agent_id"] == registered["agent_id"]
+    assert restarted.get_task(task["task_id"])["task_id"] == task["task_id"]
+
+
+def test_local_agent_heartbeat_status_degrades_without_recent_heartbeat() -> None:
+    service = LocalAgentService()
+    registered = service.register_agent(
+        {
+            "agent_name": "FORJA Heartbeat TTL Test",
+            "machine_label": "ttl-test-pc",
+            "machine_id": "ttl-test-pc",
+            "version": "test",
+            "owner": "ceo",
+            "capability_profile": ["repo_read", "snapshot_create", "memory_read", "artifact_upload"],
+            "allowed_repositories": ["forja"],
+            "allowed_workspaces": ["ecosystem"],
+            "policy_profile": "default",
+        }
+    )
+    agent = service.authenticate_agent(registered["agent_id"], registered["agent_token"])
+    online = service.heartbeat(agent)
+    assert online["status"] == "online"
+
+    stale_seen = (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat()
+    service._agents.update(
+        [],
+        lambda agents: [
+            record.update({"last_seen_at": stale_seen, "status": "online"})
+            for record in agents
+            if record.get("agent_id") == registered["agent_id"]
+        ],
+    )
+    stale = next(item for item in service.list_agents() if item["agent_id"] == registered["agent_id"])
+    assert stale["status"] == "stale"
+
+    offline_seen = (datetime.now(timezone.utc) - timedelta(seconds=360)).isoformat()
+    service._agents.update(
+        [],
+        lambda agents: [
+            record.update({"last_seen_at": offline_seen, "status": "online"})
+            for record in agents
+            if record.get("agent_id") == registered["agent_id"]
+        ],
+    )
+    offline = next(item for item in service.list_agents() if item["agent_id"] == registered["agent_id"])
+    assert offline["status"] == "offline"
 
 
 def test_local_agent_requires_approval_backup_and_rollback_for_controlled_edits() -> None:

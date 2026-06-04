@@ -4,12 +4,14 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import re
 import secrets
+from threading import RLock
 import uuid
 from typing import Any
 
 from fastapi import HTTPException
 
 from app.core.audit import append_audit_event, utc_now
+from app.core.config import settings
 from app.core.storage import store
 from app.services.ecosystem_memory_service import ecosystem_memory_service
 
@@ -39,6 +41,10 @@ READ_TYPES = {"read", "diagnosis", "build", "test", "audit"}
 MUTATING_TYPES = {"report_generation", "controlled_edit", "commit_prepare", "commit_execute", "push", "deploy", "rollback"}
 CRITICAL_TYPES = {"commit_execute", "push", "deploy", "rollback"}
 LEASE_MINUTES = 10
+AGENT_ONLINE_SECONDS = 90
+AGENT_OFFLINE_SECONDS = 300
+AGENT_REGISTRY_TABLE = "local_agent_agents"
+AGENT_TASKS_TABLE = "local_agent_tasks"
 SECRET_MARKERS = [
     "api_key",
     "apikey",
@@ -55,6 +61,257 @@ SECRET_MARKERS = [
 SECRET_TEXT_PATTERNS = [
     re.compile(r"(?<![a-z0-9])sk-[a-z0-9_-]{16,}", re.IGNORECASE),
 ]
+
+
+def _postgres_url() -> str:
+    database_url = settings.database_url.strip()
+    if database_url.startswith("postgresql+asyncpg://"):
+        return database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    return database_url
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _iso_to_db(value: str | None) -> datetime | None:
+    return _parse_datetime(value)
+
+
+class LocalAgentPersistentListStore:
+    def __init__(self, name: str, table_name: str, id_field: str) -> None:
+        self._json_store = store(name)
+        self._table_name = table_name
+        self._id_field = id_field
+        self._lock = RLock()
+        self._schema_ready = False
+
+    def read(self, default: Any) -> Any:
+        if not settings.database_enabled:
+            return self._json_store.read(default)
+        try:
+            return self._read_database(default)
+        except Exception as exc:
+            if settings.is_local:
+                return self._json_store.read(default)
+            raise HTTPException(
+                status_code=503,
+                detail=f"local_agent_persistence_unavailable:{exc.__class__.__name__}",
+            ) from exc
+
+    def write(self, payload: Any) -> None:
+        if not settings.database_enabled:
+            self._json_store.write(payload)
+            return
+        try:
+            self._write_database(payload)
+        except Exception as exc:
+            if settings.is_local:
+                self._json_store.write(payload)
+                return
+            raise HTTPException(
+                status_code=503,
+                detail=f"local_agent_persistence_unavailable:{exc.__class__.__name__}",
+            ) from exc
+
+    def update(self, default: Any, mutator):
+        with self._lock:
+            payload = self.read(default)
+            result = mutator(payload)
+            self.write(payload)
+            return result
+
+    def _connect(self):
+        import psycopg2
+
+        kwargs = {}
+        if settings.database_ssl:
+            kwargs["sslmode"] = "require"
+        return psycopg2.connect(_postgres_url(), **kwargs)
+
+    def _ensure_schema(self) -> None:
+        if self._schema_ready:
+            return
+        if self._table_name == AGENT_REGISTRY_TABLE:
+            statement = f"""
+                CREATE TABLE IF NOT EXISTS {AGENT_REGISTRY_TABLE} (
+                    agent_id VARCHAR(80) PRIMARY KEY,
+                    agent_name VARCHAR(160) NOT NULL,
+                    machine_label VARCHAR(160) NOT NULL,
+                    machine_id VARCHAR(160),
+                    version VARCHAR(80),
+                    owner VARCHAR(120) NOT NULL,
+                    status VARCHAR(40) NOT NULL,
+                    last_seen_at TIMESTAMPTZ,
+                    token_hash VARCHAR(128) NOT NULL,
+                    capabilities JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    payload JSONB NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL,
+                    revoked_at TIMESTAMPTZ
+                )
+            """
+        else:
+            statement = f"""
+                CREATE TABLE IF NOT EXISTS {AGENT_TASKS_TABLE} (
+                    task_id VARCHAR(80) PRIMARY KEY,
+                    agent_id VARCHAR(80),
+                    status VARCHAR(40) NOT NULL,
+                    task_type VARCHAR(80) NOT NULL,
+                    payload JSONB NOT NULL,
+                    result JSONB,
+                    error TEXT,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL,
+                    completed_at TIMESTAMPTZ
+                )
+            """
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(statement)
+                if self._table_name == AGENT_REGISTRY_TABLE:
+                    cursor.execute(
+                        f"CREATE INDEX IF NOT EXISTS ix_{AGENT_REGISTRY_TABLE}_status ON {AGENT_REGISTRY_TABLE} (status)"
+                    )
+                    cursor.execute(
+                        f"CREATE INDEX IF NOT EXISTS ix_{AGENT_REGISTRY_TABLE}_last_seen_at ON {AGENT_REGISTRY_TABLE} (last_seen_at)"
+                    )
+                    cursor.execute(
+                        f"CREATE INDEX IF NOT EXISTS ix_{AGENT_REGISTRY_TABLE}_machine_id ON {AGENT_REGISTRY_TABLE} (machine_id)"
+                    )
+                else:
+                    cursor.execute(
+                        f"CREATE INDEX IF NOT EXISTS ix_{AGENT_TASKS_TABLE}_status ON {AGENT_TASKS_TABLE} (status)"
+                    )
+                    cursor.execute(
+                        f"CREATE INDEX IF NOT EXISTS ix_{AGENT_TASKS_TABLE}_agent_id ON {AGENT_TASKS_TABLE} (agent_id)"
+                    )
+                    cursor.execute(
+                        f"CREATE INDEX IF NOT EXISTS ix_{AGENT_TASKS_TABLE}_updated_at ON {AGENT_TASKS_TABLE} (updated_at)"
+                    )
+            connection.commit()
+        self._schema_ready = True
+
+    def _read_database(self, default: Any) -> Any:
+        self._ensure_schema()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT payload
+                    FROM {self._table_name}
+                    ORDER BY created_at ASC
+                    """
+                )
+                rows = cursor.fetchall()
+        if not rows:
+            return default
+        return [row[0] for row in rows]
+
+    def _write_database(self, payload: list[dict]) -> None:
+        from psycopg2.extras import Json
+
+        self._ensure_schema()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                for item in payload:
+                    if self._table_name == AGENT_REGISTRY_TABLE:
+                        cursor.execute(
+                            f"""
+                            INSERT INTO {AGENT_REGISTRY_TABLE} (
+                                agent_id, agent_name, machine_label, machine_id, version,
+                                owner, status, last_seen_at, token_hash, capabilities,
+                                payload, created_at, updated_at, revoked_at
+                            )
+                            VALUES (
+                                %(agent_id)s, %(agent_name)s, %(machine_label)s,
+                                %(machine_id)s, %(version)s, %(owner)s, %(status)s,
+                                %(last_seen_at)s, %(token_hash)s, %(capabilities)s,
+                                %(payload)s, %(created_at)s, %(updated_at)s,
+                                %(revoked_at)s
+                            )
+                            ON CONFLICT(agent_id) DO UPDATE SET
+                                agent_name = excluded.agent_name,
+                                machine_label = excluded.machine_label,
+                                machine_id = excluded.machine_id,
+                                version = excluded.version,
+                                owner = excluded.owner,
+                                status = excluded.status,
+                                last_seen_at = excluded.last_seen_at,
+                                token_hash = excluded.token_hash,
+                                capabilities = excluded.capabilities,
+                                payload = excluded.payload,
+                                updated_at = excluded.updated_at,
+                                revoked_at = excluded.revoked_at
+                            """,
+                            {
+                                "agent_id": item["agent_id"],
+                                "agent_name": item["agent_name"],
+                                "machine_label": item["machine_label"],
+                                "machine_id": item.get("machine_id"),
+                                "version": item.get("version"),
+                                "owner": item.get("owner", "ceo"),
+                                "status": item.get("status", "registered"),
+                                "last_seen_at": _iso_to_db(item.get("last_seen_at")),
+                                "token_hash": item["token_hash"],
+                                "capabilities": Json(item.get("capability_profile") or []),
+                                "payload": Json(item),
+                                "created_at": _iso_to_db(item.get("created_at")) or datetime.now(timezone.utc),
+                                "updated_at": _iso_to_db(item.get("updated_at")) or datetime.now(timezone.utc),
+                                "revoked_at": _iso_to_db(item.get("revoked_at")),
+                            },
+                        )
+                    else:
+                        completed = item.get("completed_at")
+                        if not completed and item.get("status") in {"completed", "failed", "blocked", "cancelled", "rolled_back"}:
+                            completed = item.get("updated_at")
+                        result = item.get("result")
+                        error = None
+                        if isinstance(result, dict):
+                            error = result.get("error") or result.get("error_message")
+                        cursor.execute(
+                            f"""
+                            INSERT INTO {AGENT_TASKS_TABLE} (
+                                task_id, agent_id, status, task_type, payload, result,
+                                error, created_at, updated_at, completed_at
+                            )
+                            VALUES (
+                                %(task_id)s, %(agent_id)s, %(status)s, %(task_type)s,
+                                %(payload)s, %(result)s, %(error)s, %(created_at)s,
+                                %(updated_at)s, %(completed_at)s
+                            )
+                            ON CONFLICT(task_id) DO UPDATE SET
+                                agent_id = excluded.agent_id,
+                                status = excluded.status,
+                                task_type = excluded.task_type,
+                                payload = excluded.payload,
+                                result = excluded.result,
+                                error = excluded.error,
+                                updated_at = excluded.updated_at,
+                                completed_at = excluded.completed_at
+                            """,
+                            {
+                                "task_id": item["task_id"],
+                                "agent_id": item.get("assigned_agent_id"),
+                                "status": item.get("status", "queued"),
+                                "task_type": item.get("task_type", "diagnosis"),
+                                "payload": Json(item),
+                                "result": Json(result) if result is not None else None,
+                                "error": error,
+                                "created_at": _iso_to_db(item.get("created_at")) or datetime.now(timezone.utc),
+                                "updated_at": _iso_to_db(item.get("updated_at")) or datetime.now(timezone.utc),
+                                "completed_at": _iso_to_db(completed),
+                            },
+                        )
+            connection.commit()
 
 
 class LocalAgentPolicyEngine:
@@ -221,14 +478,15 @@ class LocalAgentReportsAdapter:
 
 class LocalAgentService:
     def __init__(self) -> None:
-        self._agents = store("local_agent_registry")
-        self._tasks = store("local_agent_tasks")
+        self._agents = LocalAgentPersistentListStore("local_agent_registry", AGENT_REGISTRY_TABLE, "agent_id")
+        self._tasks = LocalAgentPersistentListStore("local_agent_tasks", AGENT_TASKS_TABLE, "task_id")
         self._policy = LocalAgentPolicyEngine()
         self._memory = LocalAgentMemoryAdapter()
         self._repos = LocalAgentRepositoryAdapter()
         self._reports = LocalAgentReportsAdapter()
 
-    def register_agent(self, payload: dict) -> dict:
+    def register_agent(self, payload: dict, registration_token: str | None = None) -> dict:
+        self._authorize_registration(registration_token)
         now = utc_now()
         agent_id = f"agent-{uuid.uuid4()}"
         secret = secrets.token_urlsafe(32)
@@ -237,6 +495,8 @@ class LocalAgentService:
             "agent_id": agent_id,
             "agent_name": payload["agent_name"],
             "machine_label": payload["machine_label"],
+            "machine_id": payload.get("machine_id"),
+            "version": payload.get("version"),
             "owner": payload.get("owner", "ceo"),
             "status": "registered",
             "last_seen_at": None,
@@ -246,11 +506,23 @@ class LocalAgentService:
             "allowed_workspaces": payload.get("allowed_workspaces") or ["ecosystem"],
             "policy_profile": payload.get("policy_profile", "default"),
             "created_at": now,
+            "updated_at": now,
             "revoked_at": None,
         }
         self._agents.update([], lambda agents: agents.append(record))
         append_audit_event("local_agent.registered", payload.get("owner", "ceo"), {"agent_id": agent_id, "machine_label": record["machine_label"]})
         return {**self._public_agent(record), "agent_token": token}
+
+    def _authorize_registration(self, registration_token: str | None) -> None:
+        if settings.is_local:
+            return
+        configured_token = settings.local_agent_registration_token.strip()
+        if configured_token:
+            if not registration_token or not secrets.compare_digest(registration_token, configured_token):
+                raise HTTPException(status_code=403, detail="invalid_agent_registration_token")
+            return
+        if self._agents.read([]):
+            raise HTTPException(status_code=403, detail="agent_registration_locked")
 
     def list_agents(self) -> list[dict]:
         return [self._public_agent(agent) for agent in self._agents.read([])]
@@ -272,8 +544,9 @@ class LocalAgentService:
         def mutate(agents: list[dict]) -> dict:
             for record in agents:
                 if record.get("agent_id") == agent["agent_id"]:
-                    record["status"] = "active"
+                    record["status"] = "online"
                     record["last_seen_at"] = now
+                    record["updated_at"] = now
                     return self._public_agent(record)
             raise HTTPException(status_code=404, detail="agent_not_found")
 
@@ -312,6 +585,8 @@ class LocalAgentService:
             "command_logs": [],
             "artifacts": [],
             "result": None,
+            "error": None,
+            "completed_at": None,
             "memory_context": self._memory.context(),
             "repository_context": None,
         }
@@ -525,6 +800,9 @@ class LocalAgentService:
             if task["status"] not in {"completed", "failed", "blocked", "cancelled", "rolled_back"}:
                 task["status"] = "completed"
             task["updated_at"] = utc_now()
+            task["completed_at"] = task["updated_at"]
+            if task["status"] == "failed":
+                task["error"] = result.get("error") or result.get("error_message") or result.get("summary")
             self._append_event(task, "task.result.uploaded", {"result_id": final_result["result_id"], "status": task["status"]}, task["risk_level"])
             if task["status"] == "completed":
                 self._append_event(task, "task.completed", {"result_id": final_result["result_id"]}, task["risk_level"])
@@ -540,12 +818,22 @@ class LocalAgentService:
         latest_results = [task for task in tasks if task.get("result")][-10:]
         critical = [task for task in tasks if task.get("status") == "awaiting_critical_approval"][-10:]
         rollbacks = [task for task in tasks if task.get("rollback")][-10:]
+        online_agents = [agent for agent in agents if agent.get("status") == "online"]
+        stale_agents = [agent for agent in agents if agent.get("status") == "stale"]
+        offline_agents = [agent for agent in agents if agent.get("status") == "offline"]
         return {
             "agents": {
                 "total": len(agents),
-                "online": sum(1 for agent in agents if agent.get("status") == "active"),
-                "offline": sum(1 for agent in agents if agent.get("status") not in {"active", "registered"}),
+                "online": len(online_agents),
+                "stale": len(stale_agents),
+                "offline": len(offline_agents),
                 "registered": sum(1 for agent in agents if agent.get("status") == "registered"),
+                "last_heartbeat_at": max((agent.get("last_seen_at") or "" for agent in agents), default=None) or None,
+                "status_message": (
+                    "Agente local online."
+                    if online_agents
+                    else "No hay agente local conectado en este momento."
+                ),
             },
             "tasks": {
                 "total": len(tasks),
@@ -654,11 +942,27 @@ class LocalAgentService:
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
     def _public_agent(self, agent: dict) -> dict:
-        return {key: value for key, value in agent.items() if key != "token_hash"}
+        public = {key: value for key, value in agent.items() if key != "token_hash"}
+        if public.get("status") != "revoked":
+            public["status"] = self._heartbeat_status(public.get("last_seen_at"), public.get("status", "registered"))
+        return public
 
     def _title_from_instruction(self, instruction: str) -> str:
         clean = " ".join(instruction.split())
         return clean[:120] if clean else "FORJA Local Agent task"
+
+    def _heartbeat_status(self, last_seen_at: str | None, current_status: str) -> str:
+        if not last_seen_at:
+            return "registered" if current_status == "registered" else "offline"
+        parsed = _parse_datetime(last_seen_at)
+        if parsed is None:
+            return "offline"
+        age = (datetime.now(timezone.utc) - parsed).total_seconds()
+        if age <= AGENT_ONLINE_SECONDS:
+            return "online"
+        if age <= AGENT_OFFLINE_SECONDS:
+            return "stale"
+        return "offline"
 
 
 local_agent_service = LocalAgentService()

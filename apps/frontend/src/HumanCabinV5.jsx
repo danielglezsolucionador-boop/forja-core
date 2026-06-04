@@ -209,6 +209,31 @@ function SidebarMetric({ label, metric, compact }) {
   );
 }
 
+function LocalAgentStatus({ localAgent }) {
+  const agents = localAgent?.agents || {};
+  const tasks = localAgent?.tasks || {};
+  const latestResult = (localAgent?.latest_results || [])[0];
+  const online = Number(agents.online || 0);
+  const stale = Number(agents.stale || 0);
+  const status = online > 0 ? "OPERATIONAL" : stale > 0 ? "PENDING" : "UNKNOWN";
+  const statusText = online > 0
+    ? "Agente online: SI"
+    : agents.status_message || "No hay agente local conectado en este momento.";
+
+  return (
+    <section className="local-agent-status" aria-label="Estado Local Agent">
+      <div>
+        <span>Local Agent</span>
+        <strong>{statusText}</strong>
+        <p>Ultimo heartbeat: {agents.last_heartbeat_at || NO_DATA}</p>
+        <p>Tarea reciente: {latestResult?.title || latestResult?.task_id || "sin tarea reciente"}</p>
+        <p>Cola: {tasks.queued || 0} / Running: {tasks.running || 0} / Completed: {tasks.completed || 0}</p>
+      </div>
+      <StatusPill status={status} />
+    </section>
+  );
+}
+
 function DirectorLine({ line }) {
   return (
     <article className="director-line">
@@ -808,6 +833,8 @@ function App() {
           <SidebarMetric label="Aprobaciones" metric={approvalsMetric} compact />
           <SidebarMetric label="Bloqueos" metric={blockersMetric} compact />
         </div>
+
+        <LocalAgentStatus localAgent={snapshot.localAgent || {}} />
 
         <nav className="cabin-nav" aria-label="Navegacion FORJA">
           {navItems.map((item) => (

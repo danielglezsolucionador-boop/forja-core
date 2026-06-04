@@ -34,8 +34,14 @@ def _agent_from_headers(x_forja_agent_id: str | None, authorization: str | None)
 
 
 @router.post("/local-agent/agents", response_model=LocalAgentRecord)
-def register_local_agent(payload: LocalAgentRegisterIn) -> dict:
-    return local_agent_service.register_agent(payload.model_dump())
+def register_local_agent(
+    payload: LocalAgentRegisterIn,
+    x_forja_agent_registration_token: str | None = Header(default=None),
+) -> dict:
+    return local_agent_service.register_agent(
+        payload.model_dump(),
+        registration_token=x_forja_agent_registration_token,
+    )
 
 
 @router.get("/local-agent/agents", response_model=list[LocalAgentRecord])

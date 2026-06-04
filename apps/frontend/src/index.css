@@ -112,6 +112,7 @@ em {
 .director-panel,
 .global-card,
 .side-metric,
+.local-agent-status,
 .chat-panel,
 .empty-state,
 .data-row,
@@ -130,7 +131,7 @@ em {
 .cabin-sidebar {
   height: calc(100vh - 44px);
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   gap: 14px;
   border-color: var(--forja-line-strong);
   background: linear-gradient(180deg, rgba(18, 14, 11, 0.94), rgba(8, 7, 6, 0.96));
@@ -281,6 +282,43 @@ em {
 .side-metric span {
   font-size: 10px;
   letter-spacing: 0.07em;
+}
+
+.local-agent-status {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px;
+}
+
+.local-agent-status div {
+  min-width: 0;
+}
+
+.local-agent-status span {
+  color: var(--forja-copper);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.local-agent-status strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--forja-text);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.local-agent-status p {
+  margin: 5px 0 0;
+  color: var(--forja-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .cabin-nav {

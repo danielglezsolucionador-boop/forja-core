@@ -33,6 +33,26 @@ EXCLUDED_FILES = {".env"}
 SAFE_SECRET_METADATA_KEYS = {"secrets_scanned", "secrets_redacted", "excluded"}
 BOOLEAN_SECRET_RESULT_KEYS = {"secrets_found", "secrets_exposed"}
 DEFAULT_DELIVERIES_ROOT = Path(os.getenv("FORJA_DELIVERIES_ROOT", r"D:\ECOSYSTEM\DELIVERIES"))
+AGENT_RUNTIME_VERSION = "forja_local_agent_v1.1_persistent"
+DEFAULT_AGENT_CAPABILITIES = [
+    "repo_read",
+    "repo_status",
+    "repo_diff",
+    "repo_edit_controlled",
+    "repo_branch_create",
+    "repo_commit_prepare",
+    "memory_read",
+    "reports_generate",
+    "deliveries_generate",
+    "logs_read",
+    "build_run",
+    "tests_run",
+    "audit_run",
+    "backup_create",
+    "snapshot_create",
+    "rollback_plan",
+    "artifact_upload",
+]
 
 
 class SecretScanner:
@@ -259,21 +279,71 @@ class ResultUploader:
 
 
 class ForjaAgentClient:
-    def __init__(self, base_url: str, agent_id: str, token: str, timeout: int = 60) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        agent_id: str | None,
+        token: str | None,
+        timeout: int = 60,
+        config_path: Path | None = None,
+        config: dict | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.agent_id = agent_id
         self.token = token
         self.timeout = timeout
+        self.config_path = config_path
+        self.config = config or {}
 
     @property
     def headers(self) -> dict[str, str]:
+        if not self.agent_id or not self.token:
+            self.register()
         return {"Authorization": f"Bearer {self.token}", "X-FORJA-Agent-Id": self.agent_id}
 
     def post(self, path: str, payload: dict | None = None) -> dict:
+        if not self.agent_id or not self.token:
+            self.register()
         with httpx.Client(timeout=self.timeout) as client:
             response = client.post(f"{self.base_url}{path}", json=payload or {}, headers=self.headers)
+            if response.status_code == 401 and self._can_reregister(response):
+                self.register()
+                response = client.post(f"{self.base_url}{path}", json=payload or {}, headers=self.headers)
             response.raise_for_status()
             return response.json()
+
+    def register(self) -> dict:
+        payload = registration_payload_from_config(self.config)
+        headers = {}
+        if self.config.get("registration_token"):
+            headers["X-FORJA-Agent-Registration-Token"] = str(self.config["registration_token"])
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.post(f"{self.base_url}/local-agent/agents", json=payload, headers=headers)
+            response.raise_for_status()
+            record = response.json()
+        self.agent_id = record["agent_id"]
+        self.token = record["agent_token"]
+        self._save_credentials()
+        return record
+
+    def _can_reregister(self, response: httpx.Response) -> bool:
+        try:
+            detail = response.json().get("detail")
+        except ValueError:
+            return False
+        return detail in {"agent_not_registered", "invalid_agent_token", "agent_revoked"}
+
+    def _save_credentials(self) -> None:
+        if not self.config_path:
+            return
+        updated = dict(self.config)
+        updated["agent_id"] = self.agent_id
+        updated["agent_token"] = self.token
+        updated["last_registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        temp_path = self.config_path.with_suffix(self.config_path.suffix + ".tmp")
+        temp_path.write_text(json.dumps(updated, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path.replace(self.config_path)
+        self.config = updated
 
 
 class PollingAgent:
@@ -292,22 +362,7 @@ class PollingAgent:
         poll = self.client.post(
             "/agent/v1/tasks/poll",
             {
-                "capabilities": [
-                    "repo_read",
-                    "repo_status",
-                    "repo_diff",
-                    "memory_read",
-                    "reports_generate",
-                    "deliveries_generate",
-                    "logs_read",
-                    "build_run",
-                    "tests_run",
-                    "audit_run",
-                    "backup_create",
-                    "snapshot_create",
-                    "rollback_plan",
-                    "artifact_upload",
-                ],
+                "capabilities": DEFAULT_AGENT_CAPABILITIES,
                 "available_repositories": list(self.repo_adapter.repositories.keys()),
                 "max_tasks": 1,
             },
@@ -464,6 +519,22 @@ def load_config(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
+def registration_payload_from_config(config: dict) -> dict:
+    repository_ids = [item["id"] for item in config.get("repositories", [])]
+    computer_name = os.getenv("COMPUTERNAME") or os.getenv("HOSTNAME") or "local-pc"
+    payload = dict(config.get("register_payload") or {})
+    payload.setdefault("agent_name", config.get("agent_name") or "FORJA Local Agent Production")
+    payload.setdefault("machine_label", config.get("machine_label") or computer_name)
+    payload.setdefault("machine_id", config.get("machine_id") or computer_name)
+    payload.setdefault("version", config.get("version") or AGENT_RUNTIME_VERSION)
+    payload.setdefault("owner", config.get("owner") or "ceo")
+    payload.setdefault("capability_profile", config.get("capability_profile") or DEFAULT_AGENT_CAPABILITIES)
+    payload.setdefault("allowed_repositories", config.get("allowed_repositories") or repository_ids or ["forja"])
+    payload.setdefault("allowed_workspaces", config.get("allowed_workspaces") or ["ecosystem"])
+    payload.setdefault("policy_profile", config.get("policy_profile") or "default")
+    return payload
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="FORJA Local Agent V1 polling runner")
     parser.add_argument("--config", required=True, help="Path to local agent config JSON")
@@ -472,7 +543,13 @@ def main() -> None:
     args = parser.parse_args()
     config = load_config(Path(args.config))
     repositories = {item["id"]: Path(item["path"]) for item in config.get("repositories", [])}
-    client = ForjaAgentClient(config["base_url"], config["agent_id"], config["agent_token"])
+    client = ForjaAgentClient(
+        config["base_url"],
+        config.get("agent_id"),
+        config.get("agent_token"),
+        config_path=Path(args.config),
+        config=config,
+    )
     agent = PollingAgent(
         client,
         repositories,
