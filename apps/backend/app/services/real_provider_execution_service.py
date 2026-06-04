@@ -552,7 +552,7 @@ class RealProviderExecutionEngine:
             return "max_request_size_exceeded"
         if not payload.get("allow_real_request", True):
             return "real_request_not_explicitly_allowed"
-        if payload.get("safe_mode", True):
+        if payload.get("safe_mode", True) and not payload.get("read_only_chat", False):
             normalized = " ".join(objective.lower().split())
             for blocked in SAFE_MODE_BLOCKLIST:
                 if blocked in normalized:

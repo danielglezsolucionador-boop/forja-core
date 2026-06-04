@@ -613,6 +613,7 @@ class CreatorService:
                 "max_tokens": max_tokens,
                 "timeout_seconds": REAL_CHAT_TIMEOUT_SECONDS,
                 "safe_mode": True,
+                "read_only_chat": True,
                 "fallback_allowed": False,
                 "allow_real_request": True,
                 "rate_limit_max_requests": REAL_CHAT_RATE_LIMIT_MAX_REQUESTS,

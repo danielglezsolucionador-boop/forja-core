@@ -195,6 +195,7 @@ def test_api_chat_compatibility_uses_creator_console_real_chat(monkeypatch) -> N
     assert payload["response_received"] is True
     assert payload["secrets_exposed"] is False
     assert fake_engine.payloads[0]["provider_id"] == "openrouter"
+    assert fake_engine.payloads[0]["read_only_chat"] is True
     assert fake_engine.payloads[0]["max_tokens"] == 1800
 
 
