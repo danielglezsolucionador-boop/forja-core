@@ -247,11 +247,77 @@ def test_api_chat_compacts_context_above_legacy_12000_limit(monkeypatch) -> None
     payload = response.json()
     assert payload["context_compacted"] is True
     assert payload["provider_payload_chars"] <= 5600
-    assert payload["reply"].startswith("Tu solicitud trae demasiado contexto.")
+    assert "demasiado contexto" not in payload["reply"].lower()
     assert "spa en Cusco" in payload["reply"]
     assert "turistas que estan comparando" not in payload["reply"]
     assert "agencia de viajes" not in payload["reply"].lower()
     assert len(fake_engine.payloads[0]["objective"]) <= 5200
+
+
+def test_api_chat_short_greeting_does_not_surface_context_budget_warning(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine("Hola, soy FORJA. Estoy operativa y lista para ayudarte.")
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+    long_context = {
+        "globalStatus": "OPERATIONAL",
+        "directorLines": [
+            {"label": "Estado", "status": "READY", "text": "contexto operativo " * 120}
+            for _ in range(10)
+        ],
+        "snapshot": {
+            "metrics": [{"label": "Apps en construccion", "value": "9", "status": "OPERATIONAL", "detail": "detalle " * 160}],
+            "constructionQueue": [{"app": "FORJA", "task": "tarea " * 100, "status": "READY"} for _ in range(8)],
+            "memory": {"registered_apps": ["FORJA"] * 20, "active_apps": ["FORJA"] * 20},
+            "localAgent": {"agents": {"online": 1}, "tasks": {"queued": 0}},
+        },
+    }
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "hola",
+            "app": "FORJA",
+            "context": json.dumps(long_context),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["context_compacted"] is True
+    assert "demasiado contexto" not in payload["reply"].lower()
+    assert "Estoy lista para ordenar la obra" in payload["reply"]
+    assert payload["reply_source"] == "memory_direct"
+    assert fake_engine.payloads == []
+
+
+def test_api_chat_human_cabin_commercial_context_uses_local_guardrail(monkeypatch) -> None:
+    fake_engine = FakeCreatorChatEngine("Proveedor externo no deberia bloquear la cabina.")
+    monkeypatch.setattr(creator_service, "_real_execution_engine", fake_engine)
+    context = {
+        "source": "human_cabin_v5_compact_context",
+        "globalStatus": "OPERATIONAL",
+        "snapshot": {
+            "metrics": [{"label": "Apps en construccion", "value": "9", "status": "OPERATIONAL"}],
+            "localAgent": {"agents": {"online": 1}, "tasks": {"queued": 0}},
+        },
+    }
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "FORJA, crea una propuesta para un spa en Cusco.",
+            "app": "FORJA",
+            "context": json.dumps(context),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["reply_source"] == "memory_direct"
+    assert "spa en Cusco" in payload["reply"]
+    assert "Calendario de 7 dias" in payload["reply"]
+    assert "CTA:" in payload["reply"]
+    assert "demasiado contexto" not in payload["reply"].lower()
+    assert fake_engine.payloads == []
 
 
 def test_api_chat_marketing_focus_does_not_inject_ecosystem_memory(monkeypatch) -> None:

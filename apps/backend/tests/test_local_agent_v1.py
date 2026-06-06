@@ -372,3 +372,20 @@ def test_local_agent_dashboard_feeds_human_cabin_runtime_snapshot() -> None:
     assert "localAgent" in snapshot
     assert "metrics" in snapshot
     assert "activity" in snapshot
+
+
+def test_human_cabin_runtime_snapshot_compacts_local_agent_payload() -> None:
+    _, headers = _register_agent()
+    heartbeat = client.post("/agent/v1/heartbeat", headers=headers)
+    assert heartbeat.status_code == 200
+
+    runtime = client.get("/runtime/status")
+    assert runtime.status_code == 200
+    assert len(runtime.content) < 80000
+    local_agent = runtime.json()["snapshot"]["localAgent"]
+
+    assert local_agent["agents"]["online"] >= 1
+    assert "tasks" in local_agent
+    for task in local_agent.get("latest_results", []):
+        assert "memory_context" not in task
+        assert "repository_context" not in task

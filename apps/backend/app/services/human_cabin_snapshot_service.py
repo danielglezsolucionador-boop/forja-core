@@ -12,7 +12,7 @@ class HumanCabinSnapshotService:
         commands = creator_service.list_commands(limit=30)
         outputs = creator_service.list_outputs(limit=30)
         audit_events = read_audit_events(40)
-        local_agent = local_agent_service.dashboard()
+        local_agent = self._compact_local_agent_dashboard(local_agent_service.dashboard())
 
         active_apps = memory.get("active_apps") or memory.get("registered_apps", [])
         construction_queue = self._construction_queue(memory)
@@ -290,6 +290,66 @@ class HumanCabinSnapshotService:
             }
             for item in dashboard.get("recent_activity", [])[-8:]
         ]
+
+    def _compact_local_agent_dashboard(self, dashboard: dict) -> dict:
+        return {
+            "agents": dashboard.get("agents", {}),
+            "tasks": dashboard.get("tasks", {}),
+            "latest_results": [
+                self._compact_local_agent_task(task)
+                for task in dashboard.get("latest_results", [])[-6:]
+            ],
+            "critical_approvals": [
+                self._compact_local_agent_task(task)
+                for task in dashboard.get("critical_approvals", [])[-6:]
+            ],
+            "deliveries": dashboard.get("deliveries", [])[-8:],
+            "rollbacks_available": [
+                self._compact_local_agent_task(task)
+                for task in dashboard.get("rollbacks_available", [])[-4:]
+            ],
+            "recent_activity": dashboard.get("recent_activity", [])[-8:],
+        }
+
+    def _compact_local_agent_task(self, task: dict) -> dict:
+        result = task.get("result") or {}
+        report = result.get("report") if isinstance(result.get("report"), dict) else {}
+        target = task.get("target") if isinstance(task.get("target"), dict) else {}
+        artifacts = [
+            {
+                "name": artifact.get("name"),
+                "local_path": artifact.get("local_path"),
+                "status": artifact.get("status"),
+                "visible_in_human_cabin": artifact.get("visible_in_human_cabin", False),
+            }
+            for artifact in task.get("artifacts", [])[-4:]
+            if artifact.get("visible_in_human_cabin")
+        ]
+        return {
+            "task_id": task.get("task_id"),
+            "title": task.get("title"),
+            "status": task.get("status"),
+            "task_type": task.get("task_type"),
+            "risk_level": task.get("risk_level"),
+            "priority": task.get("priority"),
+            "updated_at": task.get("updated_at"),
+            "completed_at": task.get("completed_at"),
+            "desired_output": task.get("desired_output"),
+            "target": {
+                "delivery_path": target.get("delivery_path"),
+                "delivery_app": target.get("delivery_app"),
+            },
+            "result": {
+                "summary": result.get("summary"),
+                "human_cabin_summary": result.get("human_cabin_summary"),
+                "status": result.get("status"),
+                "report": {
+                    "name": report.get("name"),
+                    "local_path": report.get("local_path"),
+                },
+            },
+            "artifacts": artifacts,
+        }
 
     def _flow(self, memory: dict, construction_queue: list[dict], approvals: list[dict], blockers: list[dict], deliveries: list[dict]) -> list[dict]:
         active_apps = memory.get("active_apps", [])

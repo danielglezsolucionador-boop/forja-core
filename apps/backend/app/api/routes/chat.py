@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -17,7 +18,6 @@ MAX_COMPACT_CONTEXT_CHARS = 3200
 MAX_HISTORY_MESSAGES = 6
 MAX_HISTORY_CHARS = 1800
 MAX_PROVIDER_DETAILS_CHARS = 5600
-CONTEXT_COMPACTED_REPLY = "Tu solicitud trae demasiado contexto. La voy a resumir y trabajar con lo mas importante."
 
 
 class ChatRequest(BaseModel):
@@ -162,7 +162,7 @@ def _compact_human_cabin_context(raw_context: str) -> tuple[str, bool]:
     if len(text) > MAX_COMPACT_CONTEXT_CHARS:
         text = _compact_text(text, MAX_COMPACT_CONTEXT_CHARS)
         compacted = True
-    return text, compacted or len(text) < len(raw)
+    return text, compacted
 
 
 def _recent_history_context(session_id: str, limit: int = MAX_HISTORY_MESSAGES) -> str:
@@ -184,6 +184,43 @@ def _provider_details(parts: list[str]) -> str:
     return _compact_text("\n".join(part for part in parts if part).strip(), MAX_PROVIDER_DETAILS_CHARS)
 
 
+def _normalize_chat_input(value: str) -> str:
+    folded = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode("ascii")
+    return " ".join(folded.lower().split())
+
+
+def _is_fast_local_greeting(message: str) -> bool:
+    return _normalize_chat_input(message) in {"hola", "buenas", "buenos dias", "buenas tardes", "buenas noches"}
+
+
+def _is_human_cabin_ui_context(raw_context: str) -> bool:
+    raw = str(raw_context or "").strip()
+    if not raw:
+        return False
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(parsed, dict):
+        return False
+    return (
+        parsed.get("source") == "human_cabin_v5_compact_context"
+        or parsed.get("reason") == "human_cabin_context_budget"
+    )
+
+
+def _should_answer_locally_first(message: str, raw_context: str) -> bool:
+    if _is_fast_local_greeting(message):
+        return True
+    if not _is_human_cabin_ui_context(raw_context):
+        return False
+    try:
+        intent = natural_execution_service.interpret(message)
+    except Exception:
+        return False
+    return intent.name == "preparar_marketing"
+
+
 @router.post("")
 def chat(payload: ChatRequest) -> dict:
     message = payload.message.strip()
@@ -203,7 +240,6 @@ def chat(payload: ChatRequest) -> dict:
             "No mostrar reporte tecnico crudo. Convertir lenguaje natural del CEO en intencion, tarea o estado.",
             "Si el CEO pide contenido, devolver estructura, ideas, calendario, primer paso y entregable sugerido.",
             "Si el CEO pide simplificar, responder usando el historial reciente.",
-            CONTEXT_COMPACTED_REPLY if context_was_compacted else "",
             f"Contexto Human Cabin compactado:\n{compact_context}",
             f"Historial conversacional persistido:\n{recent_history or 'sin historial previo'}",
         ]
@@ -211,10 +247,12 @@ def chat(payload: ChatRequest) -> dict:
     if len(message) > 240:
         details = _provider_details([f"Mensaje completo: {_compact_text(message, 1400)}", details])
 
-    try:
-        record = creator_service.create_command({"sender": "user", "command": command, "details": details})
-    except Exception as exc:
-        record = {"id": None, "status": "degraded", "response": "", "error": exc.__class__.__name__}
+    record: dict = {}
+    if not _should_answer_locally_first(message, payload.context):
+        try:
+            record = creator_service.create_command({"sender": "user", "command": command, "details": details})
+        except Exception as exc:
+            record = {"id": None, "status": "degraded", "response": "", "error": exc.__class__.__name__}
 
     result = natural_execution_service.handle_message(
         message,
@@ -227,6 +265,4 @@ def chat(payload: ChatRequest) -> dict:
     result["creator_status"] = record.get("status")
     result["context_compacted"] = context_was_compacted
     result["provider_payload_chars"] = len(details)
-    if context_was_compacted and result.get("reply") and CONTEXT_COMPACTED_REPLY not in result["reply"]:
-        result["reply"] = f"{CONTEXT_COMPACTED_REPLY}\n\n{result['reply']}"
     return result
